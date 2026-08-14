@@ -1,25 +1,30 @@
 import { NextResponse } from 'next/server';
-import { query } from '@/lib/db';
+import { supabase } from '@/lib/supabase';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId');
 
-    let sql = `SELECT * FROM public."ConvertedLink"`;
-    const params = [];
+    let queryBuilder = supabase
+      .from('ConvertedLink')
+      .select('*')
+      .order('createdAt', { ascending: false })
+      .limit(100);
 
     if (userId) {
-      params.push(userId);
-      sql += ` WHERE "userId" = $1`;
+      queryBuilder = queryBuilder.eq('userId', userId);
     }
 
-    sql += ` ORDER BY "createdAt" DESC LIMIT 100`;
+    const { data: links, error } = await queryBuilder;
 
-    const res = await query(sql, params);
+    if (error) throw error;
+
     return NextResponse.json({
       success: true,
-      links: res.rows
+      links: links || []
     });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -35,32 +40,32 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: 'Thiếu link gốc hoặc link tiếp thị' }, { status: 400 });
     }
 
-    const res = await query(`
-      INSERT INTO public."ConvertedLink" (
-        id, "userId", "originalUrl", "destinationUrl", "affiliateUrl", "productName",
-        "shopName", "imageUrl", price, commission, "userCommission", "adminCommission", "subId", clicks, "createdAt"
-      ) VALUES (
-        gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0, CURRENT_TIMESTAMP
-      )
-      RETURNING *
-    `, [
-      userId || 'user_default',
-      originalUrl,
-      destinationUrl || originalUrl,
-      affiliateUrl,
-      productName || 'Sản phẩm Shopee',
-      shopName || 'Shopee Mall',
-      imageUrl || '',
-      Number(price) || 0,
-      Number(commission) || 0,
-      Number(userCommission) || 0,
-      Number(adminCommission) || 0,
-      subId || 'app_direct'
-    ]);
+    const { data: link, error } = await supabase
+      .from('ConvertedLink')
+      .insert({
+        userId: userId || 'user_default',
+        originalUrl,
+        destinationUrl: destinationUrl || originalUrl,
+        affiliateUrl,
+        productName: productName || 'Sản phẩm Shopee',
+        shopName: shopName || 'Shopee Mall',
+        imageUrl: imageUrl || '',
+        price: Number(price) || 0,
+        commission: Number(commission) || 0,
+        userCommission: Number(userCommission) || 0,
+        adminCommission: Number(adminCommission) || 0,
+        subId: subId || 'app_direct',
+        clicks: 0,
+        createdAt: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
 
     return NextResponse.json({
       success: true,
-      link: res.rows[0]
+      link
     });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -76,7 +81,10 @@ export async function DELETE(request) {
       return NextResponse.json({ success: false, error: 'Thiếu ID link' }, { status: 400 });
     }
 
-    await query(`DELETE FROM public."ConvertedLink" WHERE id = $1`, [id]);
+    const { error } = await supabase.from('ConvertedLink').delete().eq('id', id);
+
+    if (error) throw error;
+
     return NextResponse.json({ success: true, message: 'Đã xóa link' });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

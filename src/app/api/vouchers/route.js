@@ -1,25 +1,31 @@
 import { NextResponse } from 'next/server';
-import { query } from '@/lib/db';
+import { supabase } from '@/lib/supabase';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const shop = searchParams.get('shop');
 
-    let sql = `SELECT * FROM public."Voucher" WHERE "isActive" = TRUE`;
-    const params = [];
+    let queryBuilder = supabase
+      .from('Voucher')
+      .select('*')
+      .eq('isActive', true)
+      .order('createdAt', { ascending: false })
+      .limit(100);
 
     if (shop && shop !== 'ALL' && shop !== 'Tất cả') {
-      params.push(shop);
-      sql += ` AND shop ILIKE $${params.length}`;
+      queryBuilder = queryBuilder.ilike('shop', `%${shop}%`);
     }
 
-    sql += ` ORDER BY "createdAt" DESC LIMIT 100`;
+    const { data: vouchers, error } = await queryBuilder;
 
-    const res = await query(sql, params);
+    if (error) throw error;
+
     return NextResponse.json({
       success: true,
-      vouchers: res.rows
+      vouchers: vouchers || []
     });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -35,31 +41,27 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: 'Thiếu mã voucher hoặc mức giảm' }, { status: 400 });
     }
 
-    const res = await query(`
-      INSERT INTO public."Voucher" (id, code, shop, scope, discount, "minOrder", expiry, link, "isActive", "createdAt")
-      VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, TRUE, CURRENT_TIMESTAMP)
-      ON CONFLICT (code) DO UPDATE SET
-        shop = EXCLUDED.shop,
-        scope = EXCLUDED.scope,
-        discount = EXCLUDED.discount,
-        "minOrder" = EXCLUDED."minOrder",
-        expiry = EXCLUDED.expiry,
-        link = EXCLUDED.link,
-        "isActive" = TRUE
-      RETURNING *
-    `, [
-      code.toUpperCase().trim(),
-      shop || 'Shopee',
-      scope || 'Toàn sàn',
-      discount,
-      minOrder || 'Đơn từ 0Đ',
-      expiry || '31/12/2026',
-      link || 'https://shopee.vn'
-    ]);
+    const { data: voucher, error } = await supabase
+      .from('Voucher')
+      .upsert({
+        code: code.toUpperCase().trim(),
+        shop: shop || 'Shopee',
+        scope: scope || 'Toàn sàn',
+        discount,
+        minOrder: minOrder || 'Đơn từ 0Đ',
+        expiry: expiry || '31/12/2026',
+        link: link || 'https://shopee.vn',
+        isActive: true,
+        createdAt: new Date().toISOString()
+      }, { onConflict: 'code' })
+      .select()
+      .single();
+
+    if (error) throw error;
 
     return NextResponse.json({
       success: true,
-      voucher: res.rows[0]
+      voucher
     });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -75,7 +77,13 @@ export async function DELETE(request) {
       return NextResponse.json({ success: false, error: 'Thiếu ID voucher' }, { status: 400 });
     }
 
-    await query(`DELETE FROM public."Voucher" WHERE id = $1 OR code = $1`, [id]);
+    const { error } = await supabase
+      .from('Voucher')
+      .delete()
+      .or(`id.eq.${id},code.eq.${id}`);
+
+    if (error) throw error;
+
     return NextResponse.json({ success: true, message: 'Đã xóa voucher thành công' });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

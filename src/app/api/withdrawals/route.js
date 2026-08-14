@@ -1,23 +1,30 @@
 import { NextResponse } from 'next/server';
-import { query } from '@/lib/db';
+import { supabase } from '@/lib/supabase';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
 
-    let sql = `SELECT * FROM public."WithdrawalRequest"`;
-    const params = [];
-    if (status && status !== 'ALL') {
-      sql += ` WHERE status = $1`;
-      params.push(status);
-    }
-    sql += ` ORDER BY "createdAt" DESC LIMIT 100`;
+    let queryBuilder = supabase
+      .from('WithdrawalRequest')
+      .select('*')
+      .order('createdAt', { ascending: false })
+      .limit(100);
 
-    const res = await query(sql, params);
+    if (status && status !== 'ALL') {
+      queryBuilder = queryBuilder.eq('status', status);
+    }
+
+    const { data: withdrawals, error } = await queryBuilder;
+
+    if (error) throw error;
+
     return NextResponse.json({
       success: true,
-      withdrawals: res.rows
+      withdrawals: withdrawals || []
     });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -33,20 +40,25 @@ export async function PATCH(request) {
       return NextResponse.json({ success: false, error: 'Thiếu thông tin yêu cầu' }, { status: 400 });
     }
 
-    const res = await query(`
-      UPDATE public."WithdrawalRequest"
-      SET 
-        status = $1,
-        "transId" = COALESCE($2, "transId"),
-        note = COALESCE($3, note),
-        "processedAt" = CURRENT_TIMESTAMP
-      WHERE id = $4
-      RETURNING *
-    `, [status, transId || null, note || null, id]);
+    const updatePayload = {
+      status,
+      processedAt: new Date().toISOString()
+    };
+    if (transId !== undefined) updatePayload.transId = transId;
+    if (note !== undefined) updatePayload.note = note;
+
+    const { data: updated, error } = await supabase
+      .from('WithdrawalRequest')
+      .update(updatePayload)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
 
     return NextResponse.json({
       success: true,
-      updated: res.rows[0]
+      updated
     });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

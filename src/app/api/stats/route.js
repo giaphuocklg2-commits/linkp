@@ -1,103 +1,103 @@
 import { NextResponse } from 'next/server';
-import { query } from '@/lib/db';
+import { supabase } from '@/lib/supabase';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    // 1. Orders Stats from AffiliateOrder
-    const orderRes = await query(`
-      SELECT 
-        COUNT(*) as total_orders,
-        COUNT(CASE WHEN status = 'PENDING' THEN 1 END) as pending_orders,
-        COUNT(CASE WHEN status = 'APPROVED' THEN 1 END) as approved_orders,
-        COALESCE(SUM(CASE WHEN status = 'APPROVED' THEN "shopeeCommission" ELSE 0 END), 0) as approved_shopee_commission,
-        COALESCE(SUM(CASE WHEN status = 'APPROVED' THEN "userCashback" ELSE 0 END), 0) as approved_user_cashback,
-        COALESCE(SUM(CASE WHEN status = 'APPROVED' THEN "adminRevenue" ELSE 0 END), 0) as approved_admin_revenue,
-        COALESCE(SUM(CASE WHEN status = 'PENDING' THEN "userCashback" ELSE 0 END), 0) as pending_user_cashback,
-        COALESCE(SUM(CASE WHEN status = 'APPROVED' THEN "orderValue" ELSE 0 END), 0) as approved_gmv,
-        COALESCE(SUM("orderValue"), 0) as total_gmv
-      FROM public."AffiliateOrder"
-    `);
-    const o = orderRes.rows[0];
+    // 1. Fetch Orders, Withdrawals, Links via Supabase HTTPS (No IPv6 DNS issues)
+    const [
+      { data: orders = [], error: errOrders },
+      { data: withdrawals = [], error: errWithdrawals },
+      { count: totalLinks = 0 }
+    ] = await Promise.all([
+      supabase.from('AffiliateOrder').select('*').order('createdAt', { ascending: false }),
+      supabase.from('WithdrawalRequest').select('*').order('createdAt', { ascending: false }),
+      supabase.from('ConvertedLink').select('*', { count: 'exact', head: true })
+    ]);
 
-    const totalShopeeCommission = Number(o.approved_shopee_commission) || 0;
-    const totalUserCommission = Number(o.approved_user_cashback) || 0;
-    const pendingUserCashback = Number(o.pending_user_cashback) || 0;
-    const totalAdminCommission = Number(o.approved_admin_revenue) || 0;
+    if (errOrders) console.error('Supabase orders fetch error:', errOrders);
+    if (errWithdrawals) console.error('Supabase withdrawals fetch error:', errWithdrawals);
+
+    const totalOrders = orders.length;
+    const pendingOrders = orders.filter(o => o.status === 'PENDING');
+    const approvedOrders = orders.filter(o => o.status === 'APPROVED');
+
+    const totalGmv = orders.reduce((sum, o) => sum + (Number(o.orderValue) || 0), 0);
+    const totalShopeeCommission = approvedOrders.reduce((sum, o) => sum + (Number(o.shopeeCommission) || 0), 0);
+    const totalUserCommission = approvedOrders.reduce((sum, o) => sum + (Number(o.userCashback) || 0), 0);
+    const pendingUserCashback = pendingOrders.reduce((sum, o) => sum + (Number(o.userCashback) || 0), 0);
+    const totalAdminCommission = approvedOrders.reduce((sum, o) => sum + (Number(o.adminRevenue) || 0), 0);
     const vatTax = Math.round(totalAdminCommission * 0.10); // 10% VAT
     const adminNetProfit = totalAdminCommission - vatTax;
-    const totalGmv = Number(o.total_gmv) || 0;
-    const totalOrders = Number(o.total_orders) || 0;
-    const pendingOrdersCount = Number(o.pending_orders) || 0;
+    const pendingOrdersCount = pendingOrders.length;
 
     // 2. Withdrawals Stats
-    const withRes = await query(`
-      SELECT 
-        COUNT(*) as total_requests,
-        COALESCE(SUM(CASE WHEN status = 'PENDING' THEN amount ELSE 0 END), 0) as pending_amount,
-        COALESCE(SUM(CASE WHEN status = 'APPROVED' THEN amount ELSE 0 END), 0) as approved_amount,
-        COUNT(CASE WHEN status = 'PENDING' THEN 1 END) as pending_count
-      FROM public."WithdrawalRequest"
-    `);
-    const withStat = withRes.rows[0];
+    const pendingWithdrawals = withdrawals.filter(w => w.status === 'PENDING');
+    const approvedWithdrawals = withdrawals.filter(w => w.status === 'APPROVED');
+    const pendingPayoutAmount = pendingWithdrawals.reduce((sum, w) => sum + (Number(w.amount) || 0), 0);
+    const pendingPayoutCount = pendingWithdrawals.length;
+    const approvedPayoutAmount = approvedWithdrawals.reduce((sum, w) => sum + (Number(w.amount) || 0), 0);
 
-    // 3. Links Count
-    const linksRes = await query(`SELECT COUNT(*) as count FROM public."ConvertedLink"`);
-    const totalLinks = Number(linksRes.rows[0]?.count) || 0;
-
-    // 4. 7 Days Timeline from real DB
-    const timelineRes = await query(`
-      SELECT 
-        TO_CHAR("createdAt", 'Dy') as day_name,
-        DATE("createdAt") as day_date,
-        COALESCE(SUM("orderValue"), 0) as gmv,
-        COALESCE(SUM("shopeeCommission"), 0) as commission,
-        COALESCE(SUM("userCashback"), 0) as user_share,
-        COALESCE(SUM("adminRevenue"), 0) as admin_revenue
-      FROM public."AffiliateOrder"
-      WHERE "createdAt" >= CURRENT_DATE - INTERVAL '7 days'
-      GROUP BY DATE("createdAt"), TO_CHAR("createdAt", 'Dy')
-      ORDER BY day_date ASC
-    `);
-
-    const timeline = timelineRes.rows.map(r => ({
-      date: r.day_name || 'Hôm nay',
-      gmv: Number(r.gmv) || 0,
-      commission: Number(r.commission) || 0,
-      userShare: Number(r.user_share) || 0,
-      adminNet: Math.round((Number(r.admin_revenue) || 0) * 0.90)
-    }));
-
-    // 5. Monthly Report from real DB
-    const monthlyRes = await query(`
-      SELECT 
-        TO_CHAR("createdAt", 'MM/YYYY') as month_str,
-        COALESCE(SUM("orderValue"), 0) as gmv,
-        COALESCE(SUM("shopeeCommission"), 0) as total_comm,
-        COALESCE(SUM("userCashback"), 0) as user_share,
-        COALESCE(SUM("adminRevenue"), 0) as admin_gross
-      FROM public."AffiliateOrder"
-      WHERE status = 'APPROVED'
-      GROUP BY TO_CHAR("createdAt", 'MM/YYYY')
-      ORDER BY month_str DESC
-    `);
-
-    const monthlyReport = monthlyRes.rows.map(r => {
-      const gmv = Number(r.gmv) || 0;
-      const totalComm = Number(r.total_comm) || 0;
-      const userShare = Number(r.user_share) || 0;
-      const adminGross = Number(r.admin_gross) || 0;
-      const vat = Math.round(adminGross * 0.10);
-      const adminNet = adminGross - vat;
-      return {
-        month: `Tháng ${r.month_str}`,
-        gmv,
-        totalComm,
-        userShare,
-        adminGross,
-        vat,
-        adminNet
+    // 3. 7 Days Timeline
+    const daysMap = {};
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().split('T')[0];
+      const dayNames = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+      daysMap[key] = {
+        date: dayNames[d.getDay()],
+        gmv: 0,
+        commission: 0,
+        userShare: 0,
+        adminNet: 0
       };
+    }
+
+    orders.forEach(o => {
+      if (!o.createdAt) return;
+      const key = o.createdAt.split('T')[0];
+      if (daysMap[key]) {
+        daysMap[key].gmv += Number(o.orderValue) || 0;
+        daysMap[key].commission += Number(o.shopeeCommission) || 0;
+        daysMap[key].userShare += Number(o.userCashback) || 0;
+        daysMap[key].adminNet += Math.round((Number(o.adminRevenue) || 0) * 0.90);
+      }
     });
+
+    const timeline = Object.values(daysMap);
+
+    // 4. Monthly Report
+    const monthsMap = {};
+    approvedOrders.forEach(o => {
+      if (!o.createdAt) return;
+      const d = new Date(o.createdAt);
+      const mKey = `${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+      if (!monthsMap[mKey]) {
+        monthsMap[mKey] = {
+          month: `Tháng ${mKey}`,
+          gmv: 0,
+          totalComm: 0,
+          userShare: 0,
+          adminGross: 0,
+          vat: 0,
+          adminNet: 0
+        };
+      }
+      const gmv = Number(o.orderValue) || 0;
+      const comm = Number(o.shopeeCommission) || 0;
+      const userShare = Number(o.userCashback) || 0;
+      const adminGross = Number(o.adminRevenue) || 0;
+      monthsMap[mKey].gmv += gmv;
+      monthsMap[mKey].totalComm += comm;
+      monthsMap[mKey].userShare += userShare;
+      monthsMap[mKey].adminGross += adminGross;
+      monthsMap[mKey].vat = Math.round(monthsMap[mKey].adminGross * 0.10);
+      monthsMap[mKey].adminNet = monthsMap[mKey].adminGross - monthsMap[mKey].vat;
+    });
+
+    const monthlyReport = Object.values(monthsMap);
 
     return NextResponse.json({
       success: true,
@@ -114,10 +114,10 @@ export async function GET() {
         vatRate: 10,
         vatTax,
         adminNetProfit,
-        totalLinks,
-        pendingPayoutAmount: Number(withStat.pending_amount) || 0,
-        pendingPayoutCount: Number(withStat.pending_count) || 0,
-        approvedPayoutAmount: Number(withStat.approved_amount) || 0,
+        totalLinks: totalLinks || 0,
+        pendingPayoutAmount,
+        pendingPayoutCount,
+        approvedPayoutAmount,
         timeline,
         monthlyReport
       }

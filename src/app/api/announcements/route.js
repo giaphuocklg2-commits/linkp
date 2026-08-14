@@ -1,17 +1,22 @@
 import { NextResponse } from 'next/server';
-import { query } from '@/lib/db';
+import { supabase } from '@/lib/supabase';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const res = await query(`
-      SELECT * FROM public."Announcement" 
-      WHERE "isActive" = TRUE 
-      ORDER BY "createdAt" DESC 
-      LIMIT 50
-    `);
+    const { data: announcements, error } = await supabase
+      .from('Announcement')
+      .select('*')
+      .eq('isActive', true)
+      .order('createdAt', { ascending: false })
+      .limit(50);
+
+    if (error) throw error;
+
     return NextResponse.json({
       success: true,
-      announcements: res.rows
+      announcements: announcements || []
     });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -27,15 +32,23 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: 'Thiếu tiêu đề hoặc nội dung thông báo' }, { status: 400 });
     }
 
-    const res = await query(`
-      INSERT INTO public."Announcement" (id, title, content, type, "isActive", "createdAt")
-      VALUES (gen_random_uuid(), $1, $2, $3, TRUE, CURRENT_TIMESTAMP)
-      RETURNING *
-    `, [title, content, type || 'PROMOTION']);
+    const { data: announcement, error } = await supabase
+      .from('Announcement')
+      .insert({
+        title,
+        content,
+        type: type || 'PROMOTION',
+        isActive: true,
+        createdAt: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
 
     return NextResponse.json({
       success: true,
-      announcement: res.rows[0]
+      announcement
     });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -51,7 +64,13 @@ export async function DELETE(request) {
       return NextResponse.json({ success: false, error: 'Thiếu ID thông báo' }, { status: 400 });
     }
 
-    await query(`DELETE FROM public."Announcement" WHERE id = $1`, [id]);
+    const { error } = await supabase
+      .from('Announcement')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+
     return NextResponse.json({ success: true, message: 'Đã xóa thông báo' });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

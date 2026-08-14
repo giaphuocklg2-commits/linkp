@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
-import { query } from '@/lib/db';
+import { supabase } from '@/lib/supabase';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request) {
   try {
@@ -8,30 +10,29 @@ export async function GET(request) {
     const userId = searchParams.get('userId');
     const subId = searchParams.get('subId');
 
-    let sql = `SELECT * FROM public."AffiliateOrder" WHERE 1=1`;
-    const params = [];
+    let queryBuilder = supabase
+      .from('AffiliateOrder')
+      .select('*')
+      .order('createdAt', { ascending: false })
+      .limit(100);
 
     if (status && status !== 'ALL') {
-      params.push(status);
-      sql += ` AND status = $${params.length}`;
+      queryBuilder = queryBuilder.eq('status', status);
     }
-
     if (userId) {
-      params.push(userId);
-      sql += ` AND "userId" = $${params.length}`;
+      queryBuilder = queryBuilder.eq('userId', userId);
     }
-
     if (subId) {
-      params.push(`%${subId}%`);
-      sql += ` AND "subId" ILIKE $${params.length}`;
+      queryBuilder = queryBuilder.ilike('subId', `%${subId}%`);
     }
 
-    sql += ` ORDER BY "createdAt" DESC LIMIT 100`;
+    const { data: orders, error } = await queryBuilder;
 
-    const res = await query(sql, params);
+    if (error) throw error;
+
     return NextResponse.json({
       success: true,
-      orders: res.rows
+      orders: orders || []
     });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -47,12 +48,17 @@ export async function PATCH(request) {
       return NextResponse.json({ success: false, error: 'Thiếu id đơn hàng' }, { status: 400 });
     }
 
-    // 1. Get current order details
-    const orderRes = await query(`SELECT * FROM public."AffiliateOrder" WHERE id = $1`, [id]);
-    if (orderRes.rows.length === 0) {
+    // 1. Get current order
+    const { data: order, error: errOrder } = await supabase
+      .from('AffiliateOrder')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (errOrder || !order) {
       return NextResponse.json({ success: false, error: 'Không tìm thấy đơn hàng' }, { status: 404 });
     }
-    const order = orderRes.rows[0];
+
     const previousStatus = order.status;
     const targetStatus = status || previousStatus;
     const previousUserId = order.userId;
@@ -60,55 +66,60 @@ export async function PATCH(request) {
     const targetUserName = userName || order.userName;
     const userCashback = Number(order.userCashback) || 0;
 
-    // 2. Update order status and assigned user
-    const updateRes = await query(`
-      UPDATE public."AffiliateOrder"
-      SET 
-        status = $1,
-        "userId" = $2,
-        "userName" = $3,
-        "approvedAt" = CASE WHEN $1 = 'APPROVED' AND "approvedAt" IS NULL THEN CURRENT_TIMESTAMP ELSE "approvedAt" END
-      WHERE id = $4
-      RETURNING *
-    `, [targetStatus, targetUserId, targetUserName, id]);
+    // 2. Update order
+    const updatePayload = {
+      status: targetStatus,
+      userId: targetUserId,
+      userName: targetUserName,
+    };
+    if (targetStatus === 'APPROVED' && !order.approvedAt) {
+      updatePayload.approvedAt = new Date().toISOString();
+    }
 
-    // 3. Update User Wallet balance:
-    // A. If assigned to a new user and order is APPROVED -> credit new user's wallet
-    if (targetUserId && targetUserId !== 'user_guest' && targetUserId !== previousUserId && targetStatus === 'APPROVED') {
-      await query(`
-        UPDATE public."Wallet"
-        SET 
-          balance = balance + $1,
-          "updatedAt" = CURRENT_TIMESTAMP
-        WHERE "userId" = $2
-      `, [userCashback, targetUserId]);
-    } else if (targetUserId && targetUserId !== 'user_guest') {
-      if (previousStatus !== 'APPROVED' && targetStatus === 'APPROVED') {
-        await query(`
-          UPDATE public."Wallet"
-          SET 
-            balance = balance + $1,
-            pending = GREATEST(0, pending - $1),
-            "updatedAt" = CURRENT_TIMESTAMP
-          WHERE "userId" = $2
-        `, [userCashback, targetUserId]);
-      } else if (previousStatus === 'APPROVED' && targetStatus !== 'APPROVED') {
-        // Revert if order was un-approved
-        await query(`
-          UPDATE public."Wallet"
-          SET 
-            balance = GREATEST(0, balance - $1),
-            pending = pending + $1,
-            "updatedAt" = CURRENT_TIMESTAMP
-          WHERE "userId" = $2
-        `, [userCashback, targetUserId]);
+    const { data: updatedOrder, error: errUpdate } = await supabase
+      .from('AffiliateOrder')
+      .update(updatePayload)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (errUpdate) throw errUpdate;
+
+    // 3. Update User Wallet
+    if (targetUserId && targetUserId !== 'user_guest') {
+      const { data: wallet } = await supabase.from('Wallet').select('*').eq('userId', targetUserId).single();
+      const currentBal = Number(wallet?.balance) || 0;
+      const currentPending = Number(wallet?.pending) || 0;
+
+      if (targetUserId !== previousUserId && targetStatus === 'APPROVED') {
+        await supabase.from('Wallet').upsert({
+          userId: targetUserId,
+          balance: currentBal + userCashback,
+          updatedAt: new Date().toISOString()
+        }, { onConflict: 'userId' });
+      } else {
+        if (previousStatus !== 'APPROVED' && targetStatus === 'APPROVED') {
+          await supabase.from('Wallet').upsert({
+            userId: targetUserId,
+            balance: currentBal + userCashback,
+            pending: Math.max(0, currentPending - userCashback),
+            updatedAt: new Date().toISOString()
+          }, { onConflict: 'userId' });
+        } else if (previousStatus === 'APPROVED' && targetStatus !== 'APPROVED') {
+          await supabase.from('Wallet').upsert({
+            userId: targetUserId,
+            balance: Math.max(0, currentBal - userCashback),
+            pending: currentPending + userCashback,
+            updatedAt: new Date().toISOString()
+          }, { onConflict: 'userId' });
+        }
       }
     }
 
     return NextResponse.json({
       success: true,
-      order: updateRes.rows[0],
-      message: status === 'APPROVED' 
+      order: updatedOrder,
+      message: status === 'APPROVED'
         ? `Đã hoàn thành đơn hàng #${order.orderCode} và tự động cộng +${userCashback.toLocaleString('vi-VN')}đ vào ví của User!`
         : `Đã cập nhật trạng thái đơn hàng #${order.orderCode} thành ${status}.`
     });
@@ -132,19 +143,17 @@ export async function POST(request) {
     // Auto-match user from subId if userId is not specified or guest
     if ((!resolvedUserId || resolvedUserId === 'user_guest' || resolvedUserId === 'user_default') && subId) {
       const cleanSub = subId.trim();
-      const matchRes = await query(`
-        SELECT u.id, u.name 
-        FROM public."User" u
-        WHERE u.id = $1 
-           OR 'u_' || REPLACE(REPLACE(u.id, 'user_', ''), 'google_', '') = $1
-           OR $1 LIKE 'u_' || REPLACE(REPLACE(u.id, 'user_', ''), 'google_', '') || '%'
-           OR u.id IN (SELECT "userId" FROM public."ConvertedLink" WHERE "subId" = $1 OR "subId" LIKE $1 || '%')
-        LIMIT 1
-      `, [cleanSub]);
-
-      if (matchRes.rows.length > 0) {
-        resolvedUserId = matchRes.rows[0].id;
-        resolvedUserName = matchRes.rows[0].name || resolvedUserName;
+      const { data: matchedUsers } = await supabase.from('User').select('id, name').limit(100);
+      if (matchedUsers && matchedUsers.length > 0) {
+        const found = matchedUsers.find(u => 
+          u.id === cleanSub ||
+          `u_${u.id.replace('user_', '').replace('google_', '')}` === cleanSub ||
+          cleanSub.startsWith(`u_${u.id.replace('user_', '').replace('google_', '')}`)
+        );
+        if (found) {
+          resolvedUserId = found.id;
+          resolvedUserName = found.name || resolvedUserName;
+        }
       }
     }
 
@@ -155,51 +164,42 @@ export async function POST(request) {
     const userCb = Math.round(comm * 0.80);
     const adminRev = comm - userCb;
 
-    const res = await query(`
-      INSERT INTO public."AffiliateOrder" (
-        id, "orderCode", "userId", "userName", "productName", "shopName", "imageUrl",
-        "orderValue", "shopeeCommission", "userCashback", "adminRevenue", status, "subId", "createdAt"
-      ) VALUES (
-        gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', $11, CURRENT_TIMESTAMP
-      )
-      ON CONFLICT ("orderCode") DO UPDATE SET
-        "userId" = EXCLUDED."userId",
-        "userName" = EXCLUDED."userName",
-        "productName" = EXCLUDED."productName",
-        "orderValue" = EXCLUDED."orderValue",
-        "shopeeCommission" = EXCLUDED."shopeeCommission",
-        "userCashback" = EXCLUDED."userCashback",
-        "adminRevenue" = EXCLUDED."adminRevenue",
-        "subId" = EXCLUDED."subId"
-      RETURNING *
-    `, [
-      orderCode.trim().toUpperCase(), 
-      resolvedUserId, 
-      resolvedUserName, 
-      productName || 'Sản phẩm Shopee', 
-      shopName || 'Shopee Mall', 
-      imageUrl || '',
-      Number(orderValue),
-      comm,
-      userCb,
-      adminRev,
-      subId || 'app_direct'
-    ]);
+    const { data: newOrder, error: errInsert } = await supabase
+      .from('AffiliateOrder')
+      .upsert({
+        orderCode: orderCode.trim().toUpperCase(),
+        userId: resolvedUserId,
+        userName: resolvedUserName,
+        productName: productName || 'Sản phẩm Shopee',
+        shopName: shopName || 'Shopee Mall',
+        imageUrl: imageUrl || '',
+        orderValue: Number(orderValue),
+        shopeeCommission: comm,
+        userCashback: userCb,
+        adminRevenue: adminRev,
+        status: 'PENDING',
+        subId: subId || 'app_direct',
+        createdAt: new Date().toISOString()
+      }, { onConflict: 'orderCode' })
+      .select()
+      .single();
 
-    // Also add to User Wallet pending
+    if (errInsert) throw errInsert;
+
+    // Add to User Wallet pending
     if (resolvedUserId !== 'user_guest') {
-      await query(`
-        UPDATE public."Wallet"
-        SET 
-          pending = pending + $1,
-          "updatedAt" = CURRENT_TIMESTAMP
-        WHERE "userId" = $2
-      `, [userCb, resolvedUserId]);
+      const { data: wallet } = await supabase.from('Wallet').select('*').eq('userId', resolvedUserId).single();
+      const currentPending = Number(wallet?.pending) || 0;
+      await supabase.from('Wallet').upsert({
+        userId: resolvedUserId,
+        pending: currentPending + userCb,
+        updatedAt: new Date().toISOString()
+      }, { onConflict: 'userId' });
     }
 
     return NextResponse.json({
       success: true,
-      order: res.rows[0],
+      order: newOrder,
       message: `Đã khớp Sub_ID '${subId || 'direct'}' với User ${resolvedUserName} và tạo đơn #${orderCode} thành công!`
     });
   } catch (error) {
