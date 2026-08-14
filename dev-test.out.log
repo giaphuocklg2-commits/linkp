@@ -1,0 +1,35 @@
+
+> linkp-admin@2.0.0 dev
+> node --use-system-ca node_modules/next/dist/bin/next dev -p 3000
+
+   ▲ Next.js 15.5.23
+   - Local:        http://localhost:3000
+   - Network:      http://26.215.112.8:3000
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 1827ms
+ ○ Compiling /api/stats ...
+ ✓ Compiled /api/stats in 2.3s (302 modules)
+ GET /api/withdrawals?status=PENDING 200 in 3445ms
+ GET /api/stats 200 in 3446ms
+ ○ Compiling / ...
+ ✓ Compiled / in 2.5s (693 modules)
+ GET / 200 in 2823ms
+ ✓ Compiled in 375ms (271 modules)
+ ○ Compiling /api/app/vouchers ...
+ ✓ Compiled /api/app/vouchers in 650ms (681 modules)
+ GET /api/app/vouchers 200 in 1144ms
+ ✓ Compiled /api/orders in 268ms (376 modules)
+ ✓ Compiled /api/withdrawals in 88ms (107 modules)
+ GET /api/orders?status=ALL 200 in 1306ms
+ GET /api/withdrawals?status=ALL 200 in 957ms
+ ✓ Compiled /withdrawals in 245ms (682 modules)
+ GET /withdrawals 200 in 523ms
+ GET /api/withdrawals?status=ALL 200 in 821ms
+ ✓ Compiled in 1032ms (659 modules)
+ GET /withdrawals 200 in 987ms
+ GET /withdrawals 200 in 40ms
+ ✓ Compiled /api/withdrawals in 234ms (418 modules)
+ GET /api/withdrawals?status=ALL 200 in 1403ms
+ GET /api/withdrawals?status=ALL 200 in 122ms

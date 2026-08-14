@@ -1,0 +1,12 @@
+!.env.example
+
+.next/
+.next-dev/
+.next-stale-*/
+
+node_modules/
+
+npm-debug.log*
+
+*.pem
+*.key

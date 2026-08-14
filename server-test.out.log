@@ -1,0 +1,10 @@
+
+> linkp-admin@2.0.0 start
+> node --use-system-ca node_modules/next/dist/bin/next start -p 3000
+
+   ▲ Next.js 15.5.23
+   - Local:        http://localhost:3000
+   - Network:      http://26.215.112.8:3000
+
+ ✓ Starting...
+ ✓ Ready in 363ms
