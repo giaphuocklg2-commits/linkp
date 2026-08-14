@@ -1,28 +1,43 @@
 import { Pool } from 'pg';
 
-let pool;
+const DEFAULT_DB_URL = "postgresql://postgres:giaphuocklg@db.vrsaihfqfgmvrtxtyxpf.supabase.co:5432/postgres";
+
+// Use global variable in serverless environments to prevent multiple pool instances
+let pool = global.pgPool;
 
 export function getDb() {
   if (!pool) {
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) throw new Error('DATABASE_URL is required');
+    const connectionString = process.env.DATABASE_URL || DEFAULT_DB_URL;
     pool = new Pool({
       connectionString,
       ssl: {
-        rejectUnauthorized: false
+        rejectUnauthorized: false,
       },
       max: 10,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
+      idleTimeoutMillis: 20000,
+      connectionTimeoutMillis: 10000,
     });
+
+    pool.on('error', (err) => {
+      console.error('Unexpected error on idle PG client:', err);
+    });
+
+    if (process.env.NODE_ENV !== 'production') {
+      global.pgPool = pool;
+    }
   }
   return pool;
 }
 
 export async function query(text, params) {
-  const db = getDb();
-  const res = await db.query(text, params);
-  return res;
+  try {
+    const db = getDb();
+    const res = await db.query(text, params);
+    return res;
+  } catch (error) {
+    console.error('Database Query Error:', error.message, 'SQL:', text);
+    throw error;
+  }
 }
 
 export async function transaction(callback) {
