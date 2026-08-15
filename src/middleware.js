@@ -5,9 +5,9 @@ const URL='https://vrsaihfqfgmvrtxtyxpf.supabase.co';
 const KEY='sb_publishable_LilLYEE6WbODOuiskuRTcQ_ZhpKrZRc';
 const publicPaths=['/login','/oauth','/api/app'];
 const permissions={
-  SUPPORT:['/users','/api/users','/orders','/api/orders'],
-  FINANCE:['/orders','/api/orders','/withdrawals','/api/withdrawals','/tax-report','/api/stats'],
-  ADMIN:['/announcements','/api/announcements','/remote-config','/vouchers','/api/vouchers','/system-status','/links','/api/links','/referrals','/api/referrals'],
+  SUPPORT:['/','/api/stats','/users','/api/users','/orders','/api/orders'],
+  FINANCE:['/','/api/stats','/orders','/api/orders','/withdrawals','/api/withdrawals','/tax-report'],
+  ADMIN:['/','/api/stats','/announcements','/api/announcements','/remote-config','/vouchers','/api/vouchers','/system-status','/links','/api/links','/referrals','/api/referrals'],
 };
 
 export async function middleware(request){
