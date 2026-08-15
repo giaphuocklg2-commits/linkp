@@ -7,7 +7,19 @@ let pool = global.pgPool;
 
 export function getDb() {
   if (!pool) {
-    const connectionString = process.env.DATABASE_URL || DEFAULT_DB_URL;
+    let connectionString = process.env.DATABASE_URL || DEFAULT_DB_URL;
+    // Supabase direct DB hosts are IPv6-only. Vercel currently needs the
+    // transaction pooler, so derive its URL without duplicating credentials.
+    if (process.env.VERCEL && connectionString.includes('.supabase.co')) {
+      const url = new URL(connectionString);
+      const projectRef = url.hostname.split('.')[1];
+      if (url.hostname.startsWith('db.') && projectRef) {
+        url.hostname = 'aws-0-ap-south-1.pooler.supabase.com';
+        url.port = '6543';
+        url.username = `postgres.${projectRef}`;
+        connectionString = url.toString();
+      }
+    }
     pool = new Pool({
       connectionString,
       ssl: {
