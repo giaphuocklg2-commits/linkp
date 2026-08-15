@@ -4,7 +4,12 @@ import { query, transaction } from '@/lib/db';
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId') || 'user_default';
+    let userId = searchParams.get('userId') || 'user_default';
+    const email = searchParams.get('email');
+    if (email) {
+      const found = await query(`SELECT id FROM public."User" WHERE email=$1 LIMIT 1`, [email]);
+      if (found.rows.length) userId = found.rows[0].id;
+    }
 
     const res = await query(`
       SELECT * FROM public."AffiliateOrder"

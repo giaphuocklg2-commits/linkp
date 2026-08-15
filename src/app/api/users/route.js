@@ -144,18 +144,14 @@ export async function PATCH(request) {
     if (accountNumber !== undefined) walletPayload.accountNumber = accountNumber;
     if (accountHolder !== undefined) walletPayload.accountHolder = accountHolder;
 
-    const { data: walletBase, error: errWallet } = await supabase
-      .from('Wallet')
-      .upsert({
-        userId,
-        userName: name || 'Người dùng',
-        ...walletPayload
-      }, { onConflict: 'userId' })
-      .select()
-      .single();
-
-    if (errWallet) throw errWallet;
-    let wallet = walletBase;
+    const walletResult = await query(`INSERT INTO public."Wallet"
+      (id,"userId","userName",balance,pending,withdrawn,"bankName","accountNumber","accountHolder","updatedAt")
+      VALUES (gen_random_uuid(),$1,$2,0,0,0,$3,$4,$5,now())
+      ON CONFLICT ("userId") DO UPDATE SET
+        "userName"=COALESCE($2,public."Wallet"."userName"),
+        "bankName"=$3,"accountNumber"=$4,"accountHolder"=$5,"updatedAt"=now()
+      RETURNING *`, [userId,name || 'Người dùng',bankName ?? null,accountNumber ?? null,accountHolder ?? null]);
+    let wallet = walletResult.rows[0];
     if (balance !== undefined || pending !== undefined || withdrawn !== undefined) {
       const adjusted = await query('SELECT (public.admin_adjust_wallet($1,$2,$3,$4,$5,$6)).*', [userId,balance===undefined?null:Number(balance),pending===undefined?null:Number(pending),withdrawn===undefined?null:Number(withdrawn),'Điều chỉnh từ LinkP Admin',`admin:${userId}:${Date.now()}`]);
       wallet = adjusted.rows[0];
