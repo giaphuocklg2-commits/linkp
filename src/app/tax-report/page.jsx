@@ -49,6 +49,35 @@ export default function TaxReportPage() {
 
   const monthlyReport = s.monthlyReport || [];
 
+  const exportCsv = () => {
+    const escapeCsv = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const rows = [
+      ['BÁO CÁO HOA HỒNG VÀ THUẾ LINKP'],
+      ['Ngày xuất', new Date().toLocaleString('vi-VN')],
+      [],
+      ['TỔNG HỢP'],
+      ['Chỉ tiêu', 'Số tiền (VND)'],
+      ['Tổng GMV', Number(s.totalGmv) || 0],
+      ['Tổng hoa hồng từ sàn', Number(s.totalShopeeCommission) || 0],
+      ['Chi trả người dùng', Number(s.totalUserCommission) || 0],
+      ['Doanh thu Admin', Number(s.totalAdminCommission) || 0],
+      ['Thuế VAT 10%', Number(s.vatTax) || 0],
+      ['Lợi nhuận ròng Admin', Number(s.adminNetProfit) || 0],
+      [],
+      ['CHI TIẾT THEO KỲ'],
+      ['Kỳ tính thuế', 'Tổng GMV', 'HH từ sàn', 'Trả User', 'Doanh thu Admin', 'VAT 10%', 'Lợi nhuận ròng'],
+      ...monthlyReport.map(m => [m.month, Number(m.gmv)||0, Number(m.totalComm)||0, Number(m.userShare)||0, Number(m.adminGross)||0, Number(m.vat)||0, Number(m.adminNet)||0])
+    ];
+    const csv = '\uFEFF' + rows.map(row => row.map(escapeCsv).join(',')).join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const date = new Date().toISOString().slice(0, 10);
+    link.href = url; link.download = `linkp_tax_report_${date}.csv`;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -72,7 +101,7 @@ export default function TaxReportPage() {
             <span>Làm Mới</span>
           </button>
           <button 
-            onClick={() => alert('Đã xuất báo cáo tài chính thành công (linkp_tax_report.csv)')}
+            onClick={exportCsv}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition-all shadow-md"
           >
             <Download className="w-4 h-4" />
