@@ -13,19 +13,12 @@ export async function GET(request) {
     let res = await query(`SELECT * FROM public."Wallet" WHERE "userId" = $1`, [userId]);
     
     if (res.rows.length === 0) {
-      return NextResponse.json({
-        success: true,
-        wallet: {
-          userId,
-          userName: 'Người dùng',
-          balance: 0,
-          pending: 0,
-          withdrawn: 0,
-          bankName: '',
-          accountNumber: '',
-          accountHolder: '',
-        }
-      });
+      const created = await query(`INSERT INTO public."Wallet"
+        (id,"userId","userName",balance,pending,withdrawn,"bankName","accountNumber","accountHolder","updatedAt")
+        VALUES (gen_random_uuid(),$1,'Người dùng',0,0,0,'','','',now())
+        ON CONFLICT ("userId") DO UPDATE SET "updatedAt"=public."Wallet"."updatedAt"
+        RETURNING *`, [userId]);
+      res = created;
     }
 
     const w = res.rows[0];
