@@ -1,5 +1,11 @@
 BEGIN;
 
+-- Legacy constraints hard-coded 50,000 and excluded PAID. Validation now
+-- belongs to remote config + request_wallet_withdrawal transaction.
+ALTER TABLE public."WithdrawalRequest"
+  DROP CONSTRAINT IF EXISTS "WithdrawalRequest_amount_check",
+  DROP CONSTRAINT IF EXISTS "WithdrawalRequest_status_check";
+
 CREATE TABLE IF NOT EXISTS public."RemoteConfig" (
   key text PRIMARY KEY,
   value jsonb NOT NULL,
