@@ -8,7 +8,7 @@ export async function GET() {
     const result = await query('SELECT key, value, "updatedAt" FROM public."RemoteConfig"');
     const config = Object.fromEntries(result.rows.map(({ key, value }) => [key, value]));
     return NextResponse.json({ success: true, config }, {
-      headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300' }
+      headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' }
     });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
