@@ -6,7 +6,7 @@ import Navbar from '@/components/Navbar';
 
 export default function AppShell({ children }) {
   const pathname = usePathname();
-  const isOAuthPage = pathname.startsWith('/oauth/');
+  const isOAuthPage = pathname.startsWith('/oauth/') || pathname.startsWith('/login');
 
   if (isOAuthPage) return children;
 

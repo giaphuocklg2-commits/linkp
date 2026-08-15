@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { query } from '@/lib/db';
 import { calculateTier, MEMBER_RULES } from '@/lib/membership';
+import { createClient } from '@/utils/supabase/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -130,6 +131,14 @@ export async function PATCH(request) {
 
     if (!userId) {
       return NextResponse.json({ success: false, error: 'Thiếu userId' }, { status: 400 });
+    }
+    if (role) {
+      const currentRole = await query(`SELECT role FROM public."User" WHERE id=$1 LIMIT 1`,[userId]);
+      if (currentRole.rows[0]?.role !== role) {
+        const auth = await createClient(); const {data:{user:actor}} = await auth.auth.getUser();
+        const actorRole = actor ? await query(`SELECT role FROM public."User" WHERE email=$1 LIMIT 1`,[actor.email]) : {rows:[]};
+        if (actorRole.rows[0]?.role !== 'SUPER_ADMIN') return NextResponse.json({success:false,error:'Chỉ SUPER_ADMIN được cấp hoặc thu hồi quyền'},{status:403});
+      }
     }
     if (rankOverride !== undefined) {
       if (rankOverride === null || rankOverride === '' || rankOverride === 'AUTO') {

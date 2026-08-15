@@ -599,8 +599,11 @@ export default function UsersPage() {
                         onChange={(e) => setWalletForm({ ...walletForm, role: e.target.value })}
                         className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl font-bold"
                       >
-                        <option value="USER">USER (Người dùng tiếp thị thông thường)</option>
-                        <option value="ADMIN">ADMIN (Quản trị viên hệ thống LinkP)</option>
+                        <option value="USER">USER — Thu hồi toàn bộ quyền quản trị</option>
+                        <option value="SUPPORT">SUPPORT — User và hỗ trợ đơn</option>
+                        <option value="FINANCE">FINANCE — Đơn, ví, rút tiền, thuế</option>
+                        <option value="ADMIN">ADMIN — Nội dung và cấu hình</option>
+                        <option value="SUPER_ADMIN">SUPER ADMIN — Toàn quyền và cấp quyền</option>
                       </select>
                     </div>
                     <div>

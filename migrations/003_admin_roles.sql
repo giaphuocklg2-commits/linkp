@@ -1,0 +1,5 @@
+BEGIN;
+ALTER TABLE public."User" DROP CONSTRAINT IF EXISTS "User_role_check";
+ALTER TABLE public."User" ADD CONSTRAINT "User_role_check"
+  CHECK (role IN ('USER','SUPPORT','FINANCE','ADMIN','SUPER_ADMIN'));
+COMMIT;
