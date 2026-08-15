@@ -605,6 +605,11 @@ export default function UsersPage() {
                         <option value="ADMIN">ADMIN — Nội dung và cấu hình</option>
                         <option value="SUPER_ADMIN">SUPER ADMIN — Toàn quyền và cấp quyền</option>
                       </select>
+                      {walletForm.role !== 'USER' && (
+                        <button type="button" onClick={() => setWalletForm({ ...walletForm, role: 'USER' })} className="mt-2 w-full px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-black">
+                          Thu hồi toàn bộ quyền quản trị
+                        </button>
+                      )}
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cấp thành viên</label>
