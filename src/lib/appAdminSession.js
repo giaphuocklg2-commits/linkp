@@ -13,7 +13,7 @@ export async function signPayload(encoded) {
 }
 
 export async function createAppAdminToken(email, role) {
-  const encoded = encodePayload({ email: email.toLowerCase(), role, exp: Date.now() + 5 * 60 * 1000 });
+  const encoded = encodePayload({ email: email.toLowerCase(), role, exp: Date.now() + 12 * 60 * 60 * 1000 });
   return `${encoded}.${await signPayload(encoded)}`;
 }
 
