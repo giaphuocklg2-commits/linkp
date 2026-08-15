@@ -134,8 +134,8 @@ export async function POST(request) {
       const duplicate = await client.query('SELECT id FROM public."AffiliateOrder" WHERE "orderCode"=$1 FOR UPDATE', [orderCode.trim().toUpperCase()]);
       if (duplicate.rows.length) throw new Error('Mã đơn hàng đã tồn tại');
       const inserted = await client.query(`INSERT INTO public."AffiliateOrder"
-        ("orderCode","userId","userName","productName","shopName","imageUrl","orderValue","shopeeCommission","userCashback","adminRevenue",status,"subId","createdAt")
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PENDING',$11,now()) RETURNING *`,
+        (id,"orderCode","userId","userName","productName","shopName","imageUrl","orderValue","shopeeCommission","userCashback","adminRevenue",status,"subId","createdAt")
+        VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PENDING',$11,now()) RETURNING *`,
         [orderCode.trim().toUpperCase(), resolvedUserId, resolvedUserName, productName || 'Sản phẩm Shopee', shopName || 'Shopee Mall', imageUrl || '', Number(orderValue), comm, userCb, adminRev, subId || 'app_direct']);
       let created = inserted.rows[0];
       if (resolvedUserId !== 'user_guest') {
