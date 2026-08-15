@@ -22,8 +22,15 @@ export async function GET(request) {
       walletMap[w.userId] = w;
     });
 
+    const rankResult = await query(`SELECT "userId", COUNT(*)::int AS "approvedOrders"
+      FROM public."AffiliateOrder" WHERE status='APPROVED' GROUP BY "userId"`);
+    const approvedOrderMap = Object.fromEntries(rankResult.rows.map(row => [row.userId, Number(row.approvedOrders) || 0]));
+
     let merged = users.map(u => {
       const w = walletMap[u.id] || {};
+      const approvedOrders = approvedOrderMap[u.id] || 0;
+      const memberDays = Math.max(0, Math.floor((Date.now() - new Date(u.createdAt).getTime()) / 86400000));
+      const rank = approvedOrders >= 30 || memberDays >= 365 ? 'PLATINUM' : approvedOrders >= 10 || memberDays >= 90 ? 'GOLD' : 'SILVER';
       return {
         id: u.id,
         email: u.email,
@@ -37,7 +44,10 @@ export async function GET(request) {
         bankName: w.bankName || '',
         accountNumber: w.accountNumber || '',
         accountHolder: w.accountHolder || '',
-        walletUpdatedAt: w.updatedAt || null
+        walletUpdatedAt: w.updatedAt || null,
+        approvedOrders,
+        memberDays,
+        rank
       };
     });
 

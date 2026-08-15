@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { query } from '@/lib/db';
+import { query, transaction } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,10 +88,13 @@ export async function PATCH(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { orderCode, userId, userName, subId, productName, shopName, imageUrl, orderValue, shopeeCommission } = body;
+    const { orderCode, userId, userName, subId, productName, shopName, imageUrl, orderValue, shopeeCommission, status = 'PENDING' } = body;
 
     if (!orderCode || !orderValue) {
       return NextResponse.json({ success: false, error: 'Thiếu mã đơn hàng hoặc giá trị đơn' }, { status: 400 });
+    }
+    if (!['PENDING', 'APPROVED'].includes(status)) {
+      return NextResponse.json({ success: false, error: 'Trạng thái tạo đơn không hợp lệ' }, { status: 400 });
     }
 
     let resolvedUserId = userId;
@@ -117,46 +120,40 @@ export async function POST(request) {
     if (!resolvedUserId) resolvedUserId = 'user_guest';
     if (!resolvedUserName) resolvedUserName = 'Người dùng LinkP';
 
+    if (resolvedUserId !== 'user_guest') {
+      const { data: realUser } = await supabase.from('User').select('id,name').eq('id', resolvedUserId).maybeSingle();
+      if (!realUser) return NextResponse.json({ success:false, error:'User không tồn tại trong hệ thống' }, { status:404 });
+      resolvedUserName = realUser.name || resolvedUserName;
+    }
+
     const comm = Number(shopeeCommission) || Math.round(Number(orderValue) * 0.10);
     const userCb = Math.round(comm * 0.80);
     const adminRev = comm - userCb;
 
-    const { data: newOrder, error: errInsert } = await supabase
-      .from('AffiliateOrder')
-      .upsert({
-        orderCode: orderCode.trim().toUpperCase(),
-        userId: resolvedUserId,
-        userName: resolvedUserName,
-        productName: productName || 'Sản phẩm Shopee',
-        shopName: shopName || 'Shopee Mall',
-        imageUrl: imageUrl || '',
-        orderValue: Number(orderValue),
-        shopeeCommission: comm,
-        userCashback: userCb,
-        adminRevenue: adminRev,
-        status: 'PENDING',
-        subId: subId || 'app_direct',
-        createdAt: new Date().toISOString()
-      }, { onConflict: 'orderCode' })
-      .select()
-      .single();
-
-    if (errInsert) throw errInsert;
-
-    // Add to User Wallet pending
-    if (resolvedUserId !== 'user_guest') {
-      const { data: wallet } = await supabase.from('Wallet').select('*').eq('userId', resolvedUserId).single();
-      const currentPending = Number(wallet?.pending) || 0;
-      await supabase.from('Wallet').upsert({
-        userId: resolvedUserId,
-        pending: currentPending + userCb,
-        updatedAt: new Date().toISOString()
-      }, { onConflict: 'userId' });
-    }
+    const finalOrder = await transaction(async client => {
+      const duplicate = await client.query('SELECT id FROM public."AffiliateOrder" WHERE "orderCode"=$1 FOR UPDATE', [orderCode.trim().toUpperCase()]);
+      if (duplicate.rows.length) throw new Error('Mã đơn hàng đã tồn tại');
+      const inserted = await client.query(`INSERT INTO public."AffiliateOrder"
+        ("orderCode","userId","userName","productName","shopName","imageUrl","orderValue","shopeeCommission","userCashback","adminRevenue",status,"subId","createdAt")
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PENDING',$11,now()) RETURNING *`,
+        [orderCode.trim().toUpperCase(), resolvedUserId, resolvedUserName, productName || 'Sản phẩm Shopee', shopName || 'Shopee Mall', imageUrl || '', Number(orderValue), comm, userCb, adminRev, subId || 'app_direct']);
+      let created = inserted.rows[0];
+      if (resolvedUserId !== 'user_guest') {
+        await client.query(`INSERT INTO public."Wallet" (id,"userId","userName",balance,pending,withdrawn,"updatedAt")
+          VALUES (gen_random_uuid(),$1,$2,0,$3,0,now())
+          ON CONFLICT ("userId") DO UPDATE SET pending=public."Wallet".pending+EXCLUDED.pending,"updatedAt"=now()`,
+          [resolvedUserId, resolvedUserName, userCb]);
+      }
+      if (status === 'APPROVED') {
+        const settled = await client.query('SELECT (public.settle_affiliate_order($1,$2)).*', [created.id, 'APPROVED']);
+        created = settled.rows[0] || created;
+      }
+      return created;
+    });
 
     return NextResponse.json({
       success: true,
-      order: newOrder,
+      order: finalOrder,
       message: `Đã khớp Sub_ID '${subId || 'direct'}' với User ${resolvedUserName} và tạo đơn #${orderCode} thành công!`
     });
   } catch (error) {

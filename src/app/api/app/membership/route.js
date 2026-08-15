@@ -22,6 +22,16 @@ export async function GET(request) {
     else if(approvedOrders>=10||memberDays>=90){tier='GOLD';nextTier='PLATINUM';targetOrders=30;targetDays=365;}
     const orderProgress=Math.min(100,Math.round(approvedOrders/targetOrders*100));
     const dayProgress=Math.min(100,Math.round(memberDays/targetDays*100));
-    return NextResponse.json({success:true,membership:{tier,nextTier,approvedOrders,memberDays,targetOrders,targetDays,progress:Math.max(orderProgress,dayProgress),perks:tier==='PLATINUM'?['Ưu tiên đối soát','Hỗ trợ ưu tiên','Huy hiệu Platinum']:tier==='GOLD'?['Hỗ trợ nhanh','Huy hiệu Gold','Ưu đãi thành viên']:['Tích lũy đơn hợp lệ','Huy hiệu Silver']}});
+    const benefits = tier === 'PLATINUM'
+      ? { supportPriority:'HIGHEST', reconciliationPriority:true, exclusiveVoucherAccess:true, badge:'PLATINUM' }
+      : tier === 'GOLD'
+        ? { supportPriority:'PRIORITY', reconciliationPriority:false, exclusiveVoucherAccess:true, badge:'GOLD' }
+        : { supportPriority:'STANDARD', reconciliationPriority:false, exclusiveVoucherAccess:false, badge:'SILVER' };
+    const perks = tier === 'PLATINUM'
+      ? ['Hỗ trợ Zalo ưu tiên cao nhất','Ưu tiên kiểm tra đối soát','Kho voucher độc quyền','Huy hiệu Platinum']
+      : tier === 'GOLD'
+        ? ['Hỗ trợ Zalo ưu tiên','Kho voucher độc quyền','Huy hiệu Gold']
+        : ['Tích lũy đơn hợp lệ để thăng hạng','Hỗ trợ Zalo tiêu chuẩn','Huy hiệu Silver'];
+    return NextResponse.json({success:true,membership:{tier,nextTier,approvedOrders,memberDays,targetOrders,targetDays,progress:Math.max(orderProgress,dayProgress),benefits,perks}});
   } catch(error){return NextResponse.json({success:false,error:error.message},{status:500});}
 }

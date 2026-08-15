@@ -54,6 +54,7 @@ export default function UsersPage() {
     shopName: 'Shopee Mall',
     orderValue: '',
     shopeeCommission: '',
+    status: 'APPROVED',
   });
   const [addingOrder, setAddingOrder] = useState(false);
 
@@ -216,14 +217,15 @@ export default function UsersPage() {
           shopName: newOrderForm.shopName || 'Shopee Mall',
           orderValue: val,
           shopeeCommission: comm,
-          subId: 'admin_assigned'
+          subId: 'admin_assigned',
+          status: newOrderForm.status
         })
       });
       const data = await res.json();
       if (data.success) {
         showToast('success', `Đã thêm đơn #${newOrderForm.orderCode} cho ${activeUser.name}!`);
         setShowAddOrderModal(false);
-        setNewOrderForm({ orderCode: '', productName: '', shopName: 'Shopee Mall', orderValue: '', shopeeCommission: '' });
+        setNewOrderForm({ orderCode: '', productName: '', shopName: 'Shopee Mall', orderValue: '', shopeeCommission: '', status: 'APPROVED' });
         fetchUserSubData(activeUser.id);
         fetchUsers();
       } else {
@@ -318,6 +320,7 @@ export default function UsersPage() {
             <thead>
               <tr className="border-b border-slate-200/80 bg-slate-50/50 text-xs font-bold text-slate-400 uppercase tracking-wider">
                 <th className="py-4 px-5">Thành Viên</th>
+                <th className="py-4 px-4 text-center">Cấp thành viên</th>
                 <th className="py-4 px-4 text-center">Vai Trò</th>
                 <th className="py-4 px-4 text-right text-emerald-700">Số Dư Khả Dụng</th>
                 <th className="py-4 px-4 text-right text-amber-600">Chờ Duyệt</th>
@@ -329,14 +332,14 @@ export default function UsersPage() {
             <tbody className="divide-y divide-slate-100 font-medium">
               {loading ? (
                 <tr>
-                  <td colSpan="7" className="py-12 text-center text-slate-400">
+                  <td colSpan="8" className="py-12 text-center text-slate-400">
                     <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-blue-500" />
                     Đang tải danh sách người dùng...
                   </td>
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="py-12 text-center text-slate-400">
+                  <td colSpan="8" className="py-12 text-center text-slate-400">
                     Không tìm thấy người dùng nào.
                   </td>
                 </tr>
@@ -355,6 +358,13 @@ export default function UsersPage() {
                           <div className="text-xs text-slate-500">{u.email || 'Không có email'}</div>
                           <div className="text-[10px] text-slate-400 font-mono">ID: {u.id}</div>
                         </div>
+                      </div>
+                    </td>
+
+                    <td className="py-4 px-4 text-center">
+                      <div className="flex flex-col items-center gap-1">
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-black ${u.rank === 'PLATINUM' ? 'bg-indigo-100 text-indigo-800' : u.rank === 'GOLD' ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700'}`}>{u.rank}</span>
+                        <span className="text-[10px] text-slate-400">{u.approvedOrders} đơn hợp lệ</span>
                       </div>
                     </td>
 
@@ -676,6 +686,19 @@ export default function UsersPage() {
                             required
                           />
                         </div>
+                      </div>
+
+                      <div className="text-xs">
+                        <label className="block font-bold text-slate-700 mb-1">Trạng thái đơn để test rank</label>
+                        <select
+                          value={newOrderForm.status}
+                          onChange={(e) => setNewOrderForm({ ...newOrderForm, status: e.target.value })}
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-bold"
+                        >
+                          <option value="APPROVED">Đơn hợp lệ ngay — tính vào rank và cộng ví</option>
+                          <option value="PENDING">Chờ đối soát — chưa tính vào rank</option>
+                        </select>
+                        <p className="mt-1 text-[11px] text-slate-500">Rank chỉ đếm đơn APPROVED thật đang lưu trong database.</p>
                       </div>
 
                       <div className="flex justify-end gap-2 pt-1">
