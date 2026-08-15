@@ -13,7 +13,7 @@ export async function GET(request) {
         COUNT(*) FILTER (WHERE type='QUALIFIED_ORDER')::int "qualifiedOrders",
         COALESCE(SUM(amount) FILTER (WHERE type='COMMISSION'),0)::numeric commission
         FROM public."ReferralEvent" WHERE "referrerId"=$1`, [userId]),
-      query(`SELECT to_char(date_trunc('day',"createdAt"),'YYYY-MM-DD') day,
+      query(`SELECT to_char(date_trunc('day',"createdAt"),'YYYY-MM-DD') AS "date",
         COUNT(*) FILTER (WHERE type='CLICK')::int clicks,
         COUNT(*) FILTER (WHERE type='SIGNUP')::int signups,
         COUNT(*) FILTER (WHERE type='QUALIFIED_ORDER')::int orders,
