@@ -40,6 +40,7 @@ export default function UsersPage() {
     pending: '',
     withdrawn: '',
     role: 'USER',
+    rankOverride: 'AUTO',
     bankName: '',
     accountNumber: '',
     accountHolder: '',
@@ -93,6 +94,7 @@ export default function UsersPage() {
       pending: u.pending || 0,
       withdrawn: u.withdrawn || 0,
       role: u.role || 'USER',
+      rankOverride: u.rankOverride || 'AUTO',
       bankName: u.bankName || '',
       accountNumber: u.accountNumber || '',
       accountHolder: u.accountHolder || '',
@@ -129,6 +131,7 @@ export default function UsersPage() {
           name: activeUser.name,
           email: activeUser.email,
           role: walletForm.role,
+          rankOverride: walletForm.rankOverride,
           balance: Number(walletForm.balance),
           pending: Number(walletForm.pending),
           withdrawn: Number(walletForm.withdrawn),
@@ -151,6 +154,7 @@ export default function UsersPage() {
           accountNumber: walletForm.accountNumber,
           accountHolder: walletForm.accountHolder,
           role: walletForm.role,
+          rankOverride: walletForm.rankOverride,
         }));
       } else {
         showToast('error', data.error);
@@ -598,6 +602,20 @@ export default function UsersPage() {
                         <option value="USER">USER (Người dùng tiếp thị thông thường)</option>
                         <option value="ADMIN">ADMIN (Quản trị viên hệ thống LinkP)</option>
                       </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cấp thành viên</label>
+                      <select
+                        value={walletForm.rankOverride}
+                        onChange={(e) => setWalletForm({ ...walletForm, rankOverride: e.target.value })}
+                        className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl font-bold"
+                      >
+                        <option value="AUTO">Tự động theo đơn hợp lệ</option>
+                        <option value="SILVER">Silver — thưởng thêm 2%</option>
+                        <option value="GOLD">Gold — thưởng thêm 4%</option>
+                        <option value="PLATINUM">Platinum — thưởng thêm 6%</option>
+                      </select>
+                      <p className="mt-1 text-[11px] text-slate-500">Tự động: Gold 10 đơn, Platinum 20 đơn. Rank thủ công có hiệu lực với đơn tạo sau đó.</p>
                     </div>
                   </div>
 

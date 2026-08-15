@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { query, transaction } from '@/lib/db';
+import { getUserTier, MEMBER_RULES } from '@/lib/membership';
 
 export async function GET(request) {
   try {
@@ -40,7 +41,9 @@ export async function POST(request) {
     const comm = Number(shopeeCommission) || Math.round(val * 0.10);
     const config = await query(`SELECT COALESCE((value #>> '{}')::numeric,80) rate FROM public."RemoteConfig" WHERE key='share_rate'`);
     const shareRate = Number(config.rows[0]?.rate) || 80;
-    const userCb = Math.round(comm * shareRate / 100);
+    const tier = await getUserTier({query}, userId);
+    const appliedRate = Math.min(100, shareRate + MEMBER_RULES[tier].bonus);
+    const userCb = Math.round(comm * appliedRate / 100);
     const adminRev = comm - userCb;
 
     const order = await transaction(async client => {

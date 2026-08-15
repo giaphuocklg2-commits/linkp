@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
+import { getUserTier, MEMBER_RULES } from '@/lib/membership';
 
 const API_KEY = process.env.ADDLIVETAG_API_KEY || 'd563fb333878a1ec9816ab22092ce10055adff1567cabc5f';
 const CONVERSIONS_URL = 'https://addlivetag.com/api/v1/conversions.php';
@@ -47,6 +48,8 @@ async function handleSync(request) {
     // 2. Fetch all registered users to memory cache for fast sub_id matching
     const usersRes = await query(`SELECT id, name, email FROM public."User"`);
     const allUsers = usersRes.rows || [];
+    const config = await query(`SELECT COALESCE((value #>> '{}')::numeric,80) rate FROM public."RemoteConfig" WHERE key='share_rate'`);
+    const baseRate = Number(config.rows[0]?.rate) || 80;
 
     for (const item of items) {
       const orderCode = (item.order_sn || item.checkout_id || '').trim().toUpperCase();
@@ -105,7 +108,8 @@ async function handleSync(request) {
 
       const orderVal = Number(item.order_value) || Number(item.price) || 0;
       const comm = Number(item.commission) || Math.round(orderVal * 0.10);
-      const userCb = Math.round(comm * 0.80);
+      const tier = await getUserTier({query}, resolvedUserId);
+      const userCb = Math.round(comm * Math.min(100,baseRate+MEMBER_RULES[tier].bonus) / 100);
       const adminRev = comm - userCb;
 
       // 4. Check if order already exists

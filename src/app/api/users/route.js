@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { query } from '@/lib/db';
+import { calculateTier, MEMBER_RULES } from '@/lib/membership';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,12 +26,15 @@ export async function GET(request) {
     const rankResult = await query(`SELECT "userId", COUNT(*)::int AS "approvedOrders"
       FROM public."AffiliateOrder" WHERE status='APPROVED' GROUP BY "userId"`);
     const approvedOrderMap = Object.fromEntries(rankResult.rows.map(row => [row.userId, Number(row.approvedOrders) || 0]));
+    const overrideResult = await query(`SELECT substring(key from 13) AS "userId", value #>> '{}' AS rank FROM public."RemoteConfig" WHERE key LIKE 'member_rank:%'`);
+    const overrideMap = Object.fromEntries(overrideResult.rows.map(row => [row.userId,row.rank]));
 
     let merged = users.map(u => {
       const w = walletMap[u.id] || {};
       const approvedOrders = approvedOrderMap[u.id] || 0;
       const memberDays = Math.max(0, Math.floor((Date.now() - new Date(u.createdAt).getTime()) / 86400000));
-      const rank = approvedOrders >= 30 || memberDays >= 365 ? 'PLATINUM' : approvedOrders >= 10 || memberDays >= 90 ? 'GOLD' : 'SILVER';
+      const rankOverride = overrideMap[u.id] || null;
+      const rank = calculateTier(approvedOrders,memberDays,rankOverride);
       return {
         id: u.id,
         email: u.email,
@@ -47,7 +51,9 @@ export async function GET(request) {
         walletUpdatedAt: w.updatedAt || null,
         approvedOrders,
         memberDays,
-        rank
+        rank,
+        rankOverride,
+        bonusRate: MEMBER_RULES[rank].bonus
       };
     });
 
@@ -120,10 +126,19 @@ export async function POST(request) {
 export async function PATCH(request) {
   try {
     const body = await request.json();
-    const { userId, name, email, role, balance, pending, withdrawn, bankName, accountNumber, accountHolder } = body;
+    const { userId, name, email, role, balance, pending, withdrawn, bankName, accountNumber, accountHolder, rankOverride } = body;
 
     if (!userId) {
       return NextResponse.json({ success: false, error: 'Thiếu userId' }, { status: 400 });
+    }
+    if (rankOverride !== undefined) {
+      if (rankOverride === null || rankOverride === '' || rankOverride === 'AUTO') {
+        await query(`DELETE FROM public."RemoteConfig" WHERE key=$1`, ['member_rank:'+userId]);
+      } else if (['SILVER','GOLD','PLATINUM'].includes(rankOverride)) {
+        await query(`INSERT INTO public."RemoteConfig" (key,value,description,"updatedAt") VALUES ($1,$2::jsonb,$3,now())
+          ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value,description=EXCLUDED.description,"updatedAt"=now()`,
+          ['member_rank:'+userId,JSON.stringify(rankOverride),'Admin đặt rank thủ công']);
+      } else return NextResponse.json({success:false,error:'Rank không hợp lệ'},{status:400});
     }
 
     // 1. Update User

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { query, transaction } from '@/lib/db';
+import { getUserTier, MEMBER_RULES } from '@/lib/membership';
 
 export const dynamic = 'force-dynamic';
 
@@ -127,7 +128,11 @@ export async function POST(request) {
     }
 
     const comm = Number(shopeeCommission) || Math.round(Number(orderValue) * 0.10);
-    const userCb = Math.round(comm * 0.80);
+    const config = await query(`SELECT COALESCE((value #>> '{}')::numeric,80) rate FROM public."RemoteConfig" WHERE key='share_rate'`);
+    const baseRate = Number(config.rows[0]?.rate) || 80;
+    const tier = await getUserTier({query}, resolvedUserId);
+    const appliedRate = Math.min(100, baseRate + MEMBER_RULES[tier].bonus);
+    const userCb = Math.round(comm * appliedRate / 100);
     const adminRev = comm - userCb;
 
     const finalOrder = await transaction(async client => {
@@ -154,6 +159,7 @@ export async function POST(request) {
     return NextResponse.json({
       success: true,
       order: finalOrder,
+      membership: { tier, baseRate, bonusRate: MEMBER_RULES[tier].bonus, appliedRate },
       message: `Đã khớp Sub_ID '${subId || 'direct'}' với User ${resolvedUserName} và tạo đơn #${orderCode} thành công!`
     });
   } catch (error) {
