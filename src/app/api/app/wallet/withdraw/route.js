@@ -4,15 +4,17 @@ import { query } from '@/lib/db';
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { userId, userName, amount, bankName, accountNumber, accountHolder, note, idempotencyKey } = body;
+    const { userId, email, userName, amount, bankName, accountNumber, accountHolder, note, idempotencyKey } = body;
 
     const numAmount = Number(amount);
     if (!userId || !Number.isFinite(numAmount) || numAmount <= 0 || !idempotencyKey) {
       return NextResponse.json({ success: false, error: 'Dữ liệu rút tiền không hợp lệ' }, { status: 400 });
     }
 
+    let effectiveId = userId;
+    if (email) { const found=await query(`SELECT id FROM public."User" WHERE email=$1 LIMIT 1`,[email]); if(found.rows.length) effectiveId=found.rows[0].id; }
     // Check current wallet balance
-    const walletRes = await query(`SELECT * FROM public."Wallet" WHERE "userId" = $1`, [userId]);
+    const walletRes = await query(`SELECT * FROM public."Wallet" WHERE "userId" = $1`, [effectiveId]);
     if (walletRes.rows.length === 0) {
       return NextResponse.json({ success: false, error: 'Không tìm thấy ví người dùng' }, { status: 404 });
     }
@@ -25,7 +27,7 @@ export async function POST(request) {
     const qrUrl = `https://img.vietqr.io/image/${bName}-${accNo}-compact2.png?amount=${numAmount}&addInfo=${encodeURIComponent(note || 'LinkP Rut Tien')}&accountName=${encodeURIComponent(holder)}`;
 
     const insertRes = await query(`SELECT * FROM public.request_wallet_withdrawal($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [
-      userId, userName || holder, numAmount, bName, accNo, holder,
+      effectiveId, userName || holder, numAmount, bName, accNo, holder,
       note || 'Rút hoa hồng hoàn tiền LinkP', qrUrl, idempotencyKey
     ]);
 

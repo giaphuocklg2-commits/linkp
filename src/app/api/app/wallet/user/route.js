@@ -10,6 +10,11 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: 'Thiếu user id' }, { status: 400 });
     }
 
+    let effectiveId = id;
+    if (email) {
+      const existing = await query(`SELECT id FROM public."User" WHERE email=$1 LIMIT 1`, [email]);
+      if (existing.rows.length) effectiveId = existing.rows[0].id;
+    }
     // 1. Upsert User
     const userRes = await query(`
       INSERT INTO public."User" (id, email, name, avatar, role, "createdAt")
@@ -19,7 +24,7 @@ export async function POST(request) {
         name = CASE WHEN $3 != '' THEN $3 ELSE public."User".name END,
         avatar = CASE WHEN $4 != '' THEN $4 ELSE public."User".avatar END
       RETURNING *
-    `, [id, email || '', name || 'Người dùng Google', avatar || '']);
+    `, [effectiveId, email || '', name || 'Người dùng Google', avatar || '']);
 
     // 2. Ensure Wallet
     const walletRes = await query(`
@@ -35,7 +40,7 @@ export async function POST(request) {
         "updatedAt" = CURRENT_TIMESTAMP
       RETURNING *
     `, [
-      id,
+      effectiveId,
       name || 'Người dùng Google',
       bankName || null,
       accountNumber || null,

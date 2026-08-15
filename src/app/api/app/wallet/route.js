@@ -5,19 +5,28 @@ export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId');
+    const email = searchParams.get('email');
 
     if (!userId) {
       return NextResponse.json({ success: true, wallet: { balance: 0, pending: 0, withdrawn: 0, bankName: '', accountNumber: '', accountHolder: '' } });
     }
 
-    let res = await query(`SELECT * FROM public."Wallet" WHERE "userId" = $1`, [userId]);
+    let effectiveId = userId;
+    let res = await query(`SELECT * FROM public."Wallet" WHERE "userId" = $1`, [effectiveId]);
+    if (res.rows.length === 0 && email) {
+      const existing = await query(`SELECT id FROM public."User" WHERE email=$1 LIMIT 1`, [email]);
+      if (existing.rows.length) {
+        effectiveId = existing.rows[0].id;
+        res = await query(`SELECT * FROM public."Wallet" WHERE "userId"=$1`, [effectiveId]);
+      }
+    }
     
     if (res.rows.length === 0) {
       const created = await query(`INSERT INTO public."Wallet"
         (id,"userId","userName",balance,pending,withdrawn,"bankName","accountNumber","accountHolder","updatedAt")
         VALUES (gen_random_uuid(),$1,'Người dùng',0,0,0,'','','',now())
         ON CONFLICT ("userId") DO UPDATE SET "updatedAt"=public."Wallet"."updatedAt"
-        RETURNING *`, [userId]);
+        RETURNING *`, [effectiveId]);
       res = created;
     }
 
@@ -43,12 +52,17 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { userId, userName, bankName, accountNumber, accountHolder } = body;
+    const { userId, email, userName, bankName, accountNumber, accountHolder } = body;
 
     if (!userId || !bankName || !accountNumber) {
       return NextResponse.json({ success: false, error: 'Thiếu thông tin ngân hàng' }, { status: 400 });
     }
 
+    let effectiveId = userId;
+    if (email) {
+      const existing = await query(`SELECT id FROM public."User" WHERE email=$1 LIMIT 1`, [email]);
+      if (existing.rows.length) effectiveId = existing.rows[0].id;
+    }
     const res = await query(`
       INSERT INTO public."Wallet" (id, "userId", "userName", balance, pending, withdrawn, "bankName", "accountNumber", "accountHolder", "updatedAt")
       VALUES (gen_random_uuid(), $1, $2, 0, 0, 0, $3, $4, $5, CURRENT_TIMESTAMP)
@@ -59,7 +73,7 @@ export async function POST(request) {
         "updatedAt" = CURRENT_TIMESTAMP
       RETURNING *
     `, [
-      userId,
+      effectiveId,
       userName || 'Người dùng',
       bankName.trim().toUpperCase(),
       accountNumber.trim(),

@@ -5,8 +5,11 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request) {
   try {
-    const userId = new URL(request.url).searchParams.get('userId');
+    const params = new URL(request.url).searchParams;
+    let userId = params.get('userId');
+    const email = params.get('email');
     if (!userId) return NextResponse.json({ success: false, error: 'Thiếu userId' }, { status: 400 });
+    if (email) { const found=await query(`SELECT id FROM public."User" WHERE email=$1 LIMIT 1`,[email]); if(found.rows.length) userId=found.rows[0].id; }
     const result = await query(`
       SELECT l.*, o."orderCode", o."productName"
       FROM public."WalletLedger" l
