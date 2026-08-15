@@ -15,6 +15,7 @@ import {
   TrendingUp,
   Users,
   Gift
+  ,Settings, Activity
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -27,6 +28,8 @@ const NAV_ITEMS = [
   { href: '/links', label: 'Liên kết & Sub-ID', icon: Link2 },
   { href: '/vouchers', label: 'Kho mã giảm giá', icon: Ticket },
   { href: '/announcements', label: 'Thông báo & Deal hot', icon: Bell },
+  { href: '/remote-config', label: 'Remote config ứng dụng', icon: Settings },
+  { href: '/system-status', label: 'Trạng thái & đối soát', icon: Activity },
 ];
 
 export default function Sidebar() {

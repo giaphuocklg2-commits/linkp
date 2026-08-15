@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { query } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,55 +67,11 @@ export async function PATCH(request) {
     const targetUserName = userName || order.userName;
     const userCashback = Number(order.userCashback) || 0;
 
-    // 2. Update order
-    const updatePayload = {
-      status: targetStatus,
-      userId: targetUserId,
-      userName: targetUserName,
-    };
-    if (targetStatus === 'APPROVED' && !order.approvedAt) {
-      updatePayload.approvedAt = new Date().toISOString();
+    if (targetUserId !== previousUserId || targetUserName !== order.userName) {
+      await query('UPDATE public."AffiliateOrder" SET "userId"=$1,"userName"=$2 WHERE id::text=$3', [targetUserId,targetUserName,id]);
     }
-
-    const { data: updatedOrder, error: errUpdate } = await supabase
-      .from('AffiliateOrder')
-      .update(updatePayload)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (errUpdate) throw errUpdate;
-
-    // 3. Update User Wallet
-    if (targetUserId && targetUserId !== 'user_guest') {
-      const { data: wallet } = await supabase.from('Wallet').select('*').eq('userId', targetUserId).single();
-      const currentBal = Number(wallet?.balance) || 0;
-      const currentPending = Number(wallet?.pending) || 0;
-
-      if (targetUserId !== previousUserId && targetStatus === 'APPROVED') {
-        await supabase.from('Wallet').upsert({
-          userId: targetUserId,
-          balance: currentBal + userCashback,
-          updatedAt: new Date().toISOString()
-        }, { onConflict: 'userId' });
-      } else {
-        if (previousStatus !== 'APPROVED' && targetStatus === 'APPROVED') {
-          await supabase.from('Wallet').upsert({
-            userId: targetUserId,
-            balance: currentBal + userCashback,
-            pending: Math.max(0, currentPending - userCashback),
-            updatedAt: new Date().toISOString()
-          }, { onConflict: 'userId' });
-        } else if (previousStatus === 'APPROVED' && targetStatus !== 'APPROVED') {
-          await supabase.from('Wallet').upsert({
-            userId: targetUserId,
-            balance: Math.max(0, currentBal - userCashback),
-            pending: currentPending + userCashback,
-            updatedAt: new Date().toISOString()
-          }, { onConflict: 'userId' });
-        }
-      }
-    }
+    const settled = await query('SELECT (public.settle_affiliate_order($1,$2)).*', [id,targetStatus]);
+    const updatedOrder = settled.rows[0];
 
     return NextResponse.json({
       success: true,

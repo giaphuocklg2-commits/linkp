@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { query } from '@/lib/db';
+import { query, transaction } from '@/lib/db';
 
 export async function GET(request) {
   try {
@@ -33,20 +33,20 @@ export async function POST(request) {
 
     const val = Number(orderValue);
     const comm = Number(shopeeCommission) || Math.round(val * 0.10);
-    const userCb = Math.round(comm * 0.80);
+    const config = await query(`SELECT COALESCE((value #>> '{}')::numeric,80) rate FROM public."RemoteConfig" WHERE key='share_rate'`);
+    const shareRate = Number(config.rows[0]?.rate) || 80;
+    const userCb = Math.round(comm * shareRate / 100);
     const adminRev = comm - userCb;
 
-    const res = await query(`
-      INSERT INTO public."AffiliateOrder" (
+    const order = await transaction(async client => {
+      const existing = await client.query('SELECT * FROM public."AffiliateOrder" WHERE "orderCode"=$1 FOR UPDATE', [orderCode.trim().toUpperCase()]);
+      if (existing.rows.length) return existing.rows[0];
+      const inserted = await client.query(`INSERT INTO public."AffiliateOrder" (
         id, "orderCode", "userId", "userName", "productName", "shopName", "imageUrl",
         "orderValue", "shopeeCommission", "userCashback", "adminRevenue", status, "subId"
       ) VALUES (
         gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', $11
-      )
-      ON CONFLICT ("orderCode") DO UPDATE
-      SET "productName" = EXCLUDED."productName", "orderValue" = EXCLUDED."orderValue"
-      RETURNING *
-    `, [
+      ) RETURNING *`, [
       orderCode.trim().toUpperCase(),
       userId || 'user_default',
       userName || 'Nguyễn Văn An',
@@ -58,20 +58,20 @@ export async function POST(request) {
       userCb,
       adminRev,
       subId || 'app_direct'
-    ]);
-
-    // Add to user pending wallet balance
-    await query(`
-      UPDATE public."Wallet"
-      SET 
-        pending = pending + $1,
-        "updatedAt" = CURRENT_TIMESTAMP
-      WHERE "userId" = $2
-    `, [userCb, userId || 'user_default']);
+      ]);
+      const created = inserted.rows[0];
+      if (created.userId !== 'user_guest' && created.userId !== 'user_default') {
+        await client.query('UPDATE public."Wallet" SET pending=pending+$1,"updatedAt"=now() WHERE "userId"=$2', [userCb,created.userId]);
+        await client.query(`INSERT INTO public."WalletLedger" ("userId",type,bucket,direction,amount,status,"orderId",description,"idempotencyKey")
+          VALUES ($1,'CASHBACK_RECORDED','PENDING','CREDIT',$2,'PENDING',$3,$4,$5) ON CONFLICT DO NOTHING`,
+          [created.userId,userCb,String(created.id),'Cashback đang chờ đối soát cho đơn '+created.orderCode,'order:'+created.id+':recorded']);
+      }
+      return created;
+    });
 
     return NextResponse.json({
       success: true,
-      order: res.rows[0],
+      order,
       message: 'Khai báo đơn hàng thành công! Đang chờ Admin xác nhận đối soát.'
     });
   } catch (error) {

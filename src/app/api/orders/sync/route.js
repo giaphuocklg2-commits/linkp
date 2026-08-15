@@ -120,7 +120,7 @@ async function handleSync(request) {
             "orderValue", "shopeeCommission", "userCashback", "adminRevenue", status, "subId", "createdAt", "approvedAt"
           ) VALUES (
             gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 
-            TO_TIMESTAMP($13), CASE WHEN $11 = 'APPROVED' THEN CURRENT_TIMESTAMP ELSE NULL END
+            TO_TIMESTAMP($13), NULL
           )
         `, [
           orderCode,
@@ -133,31 +133,23 @@ async function handleSync(request) {
           comm,
           userCb,
           adminRev,
-          targetStatus,
+          'PENDING',
           rawSub || 'app_direct',
           item.purchase_time ? Number(item.purchase_time) : Date.now() / 1000
         ]);
 
-        // If User is matched and order is approved -> credit wallet balance
+        const createdRes = await query(`SELECT id FROM public."AffiliateOrder" WHERE "orderCode"=$1 ORDER BY "createdAt" DESC LIMIT 1`, [orderCode]);
+        const createdId = createdRes.rows[0]?.id;
+        // Record the pending cashback in the immutable ledger.
         if (resolvedUserId !== 'user_guest') {
-          if (targetStatus === 'APPROVED') {
+          await query(`UPDATE public."Wallet" SET pending=pending+$1,"updatedAt"=now() WHERE "userId"=$2`, [userCb,resolvedUserId]);
+          await query(`INSERT INTO public."WalletLedger" ("userId",type,bucket,direction,amount,status,"orderId",description,"idempotencyKey")
+            VALUES ($1,'CASHBACK_RECORDED','PENDING','CREDIT',$2,'PENDING',$3,$4,$5) ON CONFLICT DO NOTHING`,
+            [resolvedUserId,userCb,String(createdId),'Cashback đang chờ đối soát cho đơn '+orderCode,'order:'+createdId+':recorded']);
+          if (targetStatus === 'APPROVED' && createdId) {
             completedCount++;
             totalCashbackCredited += userCb;
-            await query(`
-              UPDATE public."Wallet"
-              SET 
-                balance = balance + $1,
-                "updatedAt" = CURRENT_TIMESTAMP
-              WHERE "userId" = $2
-            `, [userCb, resolvedUserId]);
-          } else if (targetStatus === 'PENDING') {
-            await query(`
-              UPDATE public."Wallet"
-              SET 
-                pending = pending + $1,
-                "updatedAt" = CURRENT_TIMESTAMP
-              WHERE "userId" = $2
-            `, [userCb, resolvedUserId]);
+            await query(`SELECT public.settle_affiliate_order($1,'APPROVED')`, [String(createdId)]);
           }
         }
       } else {
@@ -167,11 +159,7 @@ async function handleSync(request) {
           completedCount++;
           totalCashbackCredited += userCb;
 
-          await query(`
-            UPDATE public."AffiliateOrder"
-            SET 
-              status = 'APPROVED',
-              "approvedAt" = CURRENT_TIMESTAMP,
+          await query(`UPDATE public."AffiliateOrder" SET
               "userId" = CASE WHEN $1 != 'user_guest' THEN $1 ELSE "userId" END,
               "userName" = CASE WHEN $2 != 'Người dùng Shopee' THEN $2 ELSE "userName" END,
               "productName" = COALESCE($3, "productName"),
@@ -191,20 +179,13 @@ async function handleSync(request) {
             prev.id
           ]);
 
-          const effectiveUid = (resolvedUserId !== 'user_guest') ? resolvedUserId : prev.userId;
-          if (effectiveUid && effectiveUid !== 'user_guest') {
-            await query(`
-              UPDATE public."Wallet"
-              SET 
-                balance = balance + $1,
-                pending = GREATEST(0, pending - $1),
-                "updatedAt" = CURRENT_TIMESTAMP
-              WHERE "userId" = $2
-            `, [userCb, effectiveUid]);
-          }
+          await query(`SELECT public.settle_affiliate_order($1,'APPROVED')`, [String(prev.id)]);
         }
       }
     }
+
+    await query(`INSERT INTO public."ReconciliationHistory" (period,status,"ordersChecked","ordersApproved","cashbackAmount",note)
+      VALUES ($1,'COMPLETED',$2,$3,$4,$5)`, [new Date().toISOString().slice(0,10),totalFetched,completedCount,totalCashbackCredited,`Matched ${matchedCount}, new ${newOrdersCount}`]);
 
     return NextResponse.json({
       success: true,
