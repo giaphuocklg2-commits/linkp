@@ -40,25 +40,25 @@ export async function PATCH(request) {
       return NextResponse.json({ success: false, error: 'Thiếu thông tin yêu cầu' }, { status: 400 });
     }
 
-    const updatePayload = {
-      status,
-      processedAt: new Date().toISOString()
-    };
-    if (transId !== undefined) updatePayload.transId = transId;
-    if (note !== undefined) updatePayload.note = note;
+    if (!['APPROVED', 'REJECTED', 'PENDING'].includes(status)) {
+      return NextResponse.json({ success: false, error: 'Trạng thái không hợp lệ' }, { status: 400 });
+    }
 
-    const { data: updated, error } = await supabase
-      .from('WithdrawalRequest')
-      .update(updatePayload)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) throw error;
+    const { query } = require('@/lib/db');
+    
+    let result;
+    try {
+      const settled = await query('SELECT (public.admin_process_withdrawal($1,$2,$3,$4,$5)).*', 
+        [id, status, transId || null, note || null, 'admin']);
+      result = settled.rows[0];
+    } catch (e) {
+      if (e.message.includes('REQUEST_NOT_FOUND')) return NextResponse.json({ success: false, error: 'Không tìm thấy yêu cầu' }, { status: 404 });
+      throw e;
+    }
 
     return NextResponse.json({
       success: true,
-      updated
+      updated: result
     });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
