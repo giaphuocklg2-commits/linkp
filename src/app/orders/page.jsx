@@ -61,8 +61,16 @@ export default function OrdersPage() {
   };
 
   useEffect(() => {
-    fetchOrders();
-    fetchUsersList();
+    const init = async () => {
+      // Auto-sync on first load
+      if (activeTab === 'ALL') {
+        await handleSyncAddLiveTag();
+      } else {
+        fetchOrders();
+      }
+      fetchUsersList();
+    };
+    init();
   }, [activeTab]);
 
   const fetchOrders = async () => {
@@ -327,10 +335,11 @@ export default function OrdersPage() {
                     </td>
 
                     <td className="py-4 px-5">
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 text-xs font-mono font-bold border border-blue-200">
-                          <Tag className="w-3 h-3 text-blue-600" />
-                          {ord.subId || 'app_direct'}
+                      <div className="flex flex-col gap-1.5">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-900 text-xs font-mono font-bold border border-blue-200 shadow-sm w-fit">
+                          <Tag className="w-3.5 h-3.5 text-blue-600" />
+                          <span className="text-[10px] uppercase text-blue-500 mr-0.5">Sub_ID:</span> 
+                          <span className="text-sm">{ord.subId || 'app_direct'}</span>
                         </span>
                       </div>
                       <div className="text-xs font-bold text-slate-700 mt-1">
