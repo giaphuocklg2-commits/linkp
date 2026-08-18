@@ -11,12 +11,44 @@ export async function GET(request) {
     const status = searchParams.get('status');
     const userId = searchParams.get('userId');
     const subId = searchParams.get('subId');
+    const dateFilter = searchParams.get('dateFilter') || 'ALL'; // TODAY, YESTERDAY, 7DAYS, 30DAYS, LAST_MONTH, ALL
 
     let queryBuilder = supabase
       .from('AffiliateOrder')
       .select('*')
-      .order('createdAt', { ascending: false })
-      .limit(100);
+      .order('createdAt', { ascending: false });
+
+    // Apply date filtering
+    const now = new Date();
+    if (dateFilter !== 'ALL') {
+      let startDate;
+      let endDate;
+      
+      if (dateFilter === 'TODAY') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      } else if (dateFilter === 'YESTERDAY') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+        endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      } else if (dateFilter === '7DAYS') {
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      } else if (dateFilter === '30DAYS') {
+        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      } else if (dateFilter === 'LAST_MONTH') {
+        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        endDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      } else if (dateFilter === 'THIS_MONTH') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      }
+
+      if (startDate) {
+        queryBuilder = queryBuilder.gte('createdAt', startDate.toISOString());
+      }
+      if (endDate) {
+        queryBuilder = queryBuilder.lt('createdAt', endDate.toISOString());
+      }
+    }
+    
+    queryBuilder = queryBuilder.limit(100);
 
     if (status && status !== 'ALL') {
       queryBuilder = queryBuilder.eq('status', status);

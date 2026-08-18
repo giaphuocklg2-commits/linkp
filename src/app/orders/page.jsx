@@ -25,6 +25,7 @@ export default function OrdersPage() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('ALL');
+  const [dateFilter, setDateFilter] = useState('ALL');
   const [search, setSearch] = useState('');
   const [alertMsg, setAlertMsg] = useState(null);
 
@@ -62,21 +63,16 @@ export default function OrdersPage() {
 
   useEffect(() => {
     const init = async () => {
-      // Auto-sync on first load
-      if (activeTab === 'ALL') {
-        await handleSyncAddLiveTag();
-      } else {
-        fetchOrders();
-      }
+      fetchOrders();
       fetchUsersList();
     };
     init();
-  }, [activeTab]);
+  }, [activeTab, dateFilter]);
 
   const fetchOrders = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/orders?status=${activeTab}`);
+      const res = await fetch(`/api/orders?status=${activeTab}&dateFilter=${dateFilter}`);
       const data = await res.json();
       if (data.success) {
         setOrders(data.orders || []);
@@ -276,6 +272,23 @@ export default function OrdersPage() {
               {tab.label}
             </button>
           ))}
+        </div>
+
+        {/* Date Filter Dropdown */}
+        <div className="flex items-center">
+          <select 
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+          >
+            <option value="TODAY">Hôm nay</option>
+            <option value="YESTERDAY">Hôm qua</option>
+            <option value="7DAYS">7 Ngày qua</option>
+            <option value="30DAYS">30 Ngày qua</option>
+            <option value="THIS_MONTH">Tháng này</option>
+            <option value="LAST_MONTH">Tháng trước</option>
+            <option value="ALL">Tất cả thời gian</option>
+          </select>
         </div>
 
         {/* Search input */}

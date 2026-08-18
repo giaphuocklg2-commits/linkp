@@ -55,7 +55,14 @@ async function handleSync(request) {
       const orderCode = (item.order_sn || item.checkout_id || '').trim().toUpperCase();
       if (!orderCode) continue;
 
-      const rawSub = (item.sub_id1 || item.utm || '').trim();
+      let rawSub = (item.sub_id1 || item.utm || '').trim();
+      
+      // Fix subid truncation: if utm contains the sub_id1 (e.g. link4p-xxxx), we prefer it
+      const utm = (item.utm || '').trim();
+      if (utm && utm !== '----' && !utm.startsWith('default-default')) {
+        rawSub = utm;
+      }
+
       const rawStatus = (item.status || '').trim();
       const statusCode = (item.status_code || '').toLowerCase().trim();
       const commStatus = (item.commission_status || '').trim();
