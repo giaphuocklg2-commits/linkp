@@ -136,7 +136,16 @@ export async function PATCH(request) {
       const currentRole = await query(`SELECT role FROM public."User" WHERE id=$1 LIMIT 1`,[userId]);
       if (currentRole.rows[0]?.role !== role) {
         const auth = await createClient(); const {data:{user:actor}} = await auth.auth.getUser();
-        const actorRole = actor ? await query(`SELECT role FROM public."User" WHERE email=$1 LIMIT 1`,[actor.email]) : {rows:[]};
+        let actorEmail = actor?.email;
+        if (!actorEmail) {
+          const appToken = request.cookies.get('lp_app_admin')?.value;
+          if (appToken) {
+            const { verifyAppAdminToken } = require('@/lib/appAdminSession');
+            const appSession = await verifyAppAdminToken(appToken);
+            if (appSession) actorEmail = appSession.email;
+          }
+        }
+        const actorRole = actorEmail ? await query(`SELECT role FROM public."User" WHERE email=$1 LIMIT 1`,[actorEmail]) : {rows:[]};
         if (actorRole.rows[0]?.role !== 'SUPER_ADMIN') return NextResponse.json({success:false,error:'Chỉ SUPER_ADMIN được cấp hoặc thu hồi quyền'},{status:403});
       }
     }
