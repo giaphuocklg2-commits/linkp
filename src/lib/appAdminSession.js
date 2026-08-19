@@ -12,8 +12,12 @@ export async function signPayload(encoded) {
   return Buffer.from(signature).toString('base64url');
 }
 
-export async function createAppAdminToken(email, role) {
-  const encoded = encodePayload({ email: email.toLowerCase(), role, exp: Date.now() + 12 * 60 * 60 * 1000 });
+export async function createAppAdminToken(email, role = 'SUPER_ADMIN', days = 30) {
+  const encoded = encodePayload({ 
+    email: email.toLowerCase().trim(), 
+    role, 
+    exp: Date.now() + days * 24 * 60 * 60 * 1000 
+  });
   return `${encoded}.${await signPayload(encoded)}`;
 }
 
@@ -23,5 +27,7 @@ export async function verifyAppAdminToken(token) {
     if (!encoded || !signature || (await signPayload(encoded)) !== signature) return null;
     const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
     return payload.exp > Date.now() ? payload : null;
-  } catch { return null; }
+  } catch { 
+    return null; 
+  }
 }
