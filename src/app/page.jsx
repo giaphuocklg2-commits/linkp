@@ -506,7 +506,7 @@ export default function DashboardPage() {
 
                     <td className="py-3.5 px-4 text-right space-x-2">
                       <button
-                        onClick={() => handleStatusUpdate(item.id, 'COMPLETED')}
+                        onClick={() => handleStatusUpdate(item.id, 'APPROVED')}
                         className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold transition-all shadow-2xs active:scale-95"
                       >
                         Duyệt

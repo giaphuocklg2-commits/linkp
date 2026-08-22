@@ -64,7 +64,7 @@ export default function VietQRModal({ item, onClose, onApprove }) {
   const handleSubmitApprove = async () => {
     setIsSubmitting(true);
     try {
-      await onApprove(item.id, 'COMPLETED', ftCode);
+      await onApprove(item.id, 'APPROVED', ftCode);
       onClose();
     } catch (e) {
       console.error('Approve failed:', e);
