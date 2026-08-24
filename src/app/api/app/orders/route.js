@@ -11,24 +11,23 @@ export async function GET(request) {
 
     // 1. Resolve userId from email if provided
     if (email) {
-      const found = await query(`SELECT id FROM public."User" WHERE email=$1 LIMIT 1`, [email]);
+      const found = await query(`SELECT id FROM public."User" WHERE LOWER(email) = LOWER($1) LIMIT 1`, [email]);
       if (found.rows.length) userId = found.rows[0].id;
     }
 
     // 2. AUTO-SYNC LIVE CONVERSIONS FROM ADDLIVETAG API
-    // Automatically fetches and matches fresh orders from AddLiveTag on every app request
     try {
       await performAddLiveTagSync({ maxPages: 2 });
     } catch (syncError) {
       console.error('Auto sync on app order fetch warning:', syncError);
     }
 
-    // 3. Query PostgreSQL for user's matched orders (by userId or cleanSubId)
+    // 3. Query PostgreSQL for user's matched orders (case-insensitive ILIKE)
     const cleanUserSub = userId.replace('user_', '').replace('google_', '');
     const res = await query(`
       SELECT * FROM public."AffiliateOrder"
       WHERE "userId" = $1 
-         OR "subId" LIKE '%' || $2 || '%'
+         OR "subId" ILIKE '%' || $2 || '%'
       ORDER BY "createdAt" DESC
       LIMIT 50
     `, [userId, cleanUserSub]);

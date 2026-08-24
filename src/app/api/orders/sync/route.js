@@ -158,17 +158,12 @@ export async function performAddLiveTagSync(opts = {}) {
 
       if (rawSub) {
         const cleanSub = rawSub.toLowerCase();
+
+        // Pass 1: Strict User ID Match (highest priority)
         for (const u of allUsers) {
-          const cleanId = (u.id || '').replace('user_', '').replace('google_', '').toLowerCase();
-          const cleanName = (u.name || '').toLowerCase().trim();
-          const cleanEmailPrefix = (u.email || '').split('@')[0].toLowerCase().trim();
-          const subSuffix = cleanSub.split('-').pop();
-
-          const isIdMatch = cleanId && (cleanSub.includes(cleanId) || cleanSub === 'u_' + cleanId || cleanSub.includes((u.id || '').toLowerCase()));
-          const isNameMatch = cleanName && cleanName.length > 2 && (cleanSub.includes(cleanName) || (subSuffix.length > 2 && cleanName.includes(subSuffix)));
-          const isEmailMatch = cleanEmailPrefix && cleanEmailPrefix.length > 2 && (cleanSub.includes(cleanEmailPrefix) || (subSuffix.length > 2 && cleanEmailPrefix.includes(subSuffix)));
-
-          if (isIdMatch || isNameMatch || isEmailMatch) {
+          const rawId = (u.id || '').toLowerCase();
+          const cleanId = rawId.replace('user_', '').replace('google_', '');
+          if (cleanId.length > 2 && (cleanSub === rawId || cleanSub === cleanId || cleanSub.includes(rawId) || cleanSub.includes(cleanId))) {
             resolvedUserId = u.id;
             resolvedUserName = u.name || u.email || resolvedUserName;
             matchedCount++;
@@ -176,6 +171,26 @@ export async function performAddLiveTagSync(opts = {}) {
           }
         }
 
+        // Pass 2: Name / Email match if ID did not match
+        if (resolvedUserId === 'user_guest') {
+          for (const u of allUsers) {
+            const cleanName = (u.name || '').toLowerCase().trim();
+            const cleanEmailPrefix = (u.email || '').split('@')[0].toLowerCase().trim();
+            const subSuffix = cleanSub.split('-').pop();
+
+            const isNameMatch = cleanName && cleanName.length > 2 && (cleanSub.includes(cleanName) || (subSuffix.length > 2 && cleanName.includes(subSuffix)));
+            const isEmailMatch = cleanEmailPrefix && cleanEmailPrefix.length > 2 && (cleanSub.includes(cleanEmailPrefix) || (subSuffix.length > 2 && cleanEmailPrefix.includes(subSuffix)));
+
+            if (isNameMatch || isEmailMatch) {
+              resolvedUserId = u.id;
+              resolvedUserName = u.name || u.email || resolvedUserName;
+              matchedCount++;
+              break;
+            }
+          }
+        }
+
+        // Pass 3: Fallback check against ConvertedLink history
         if (resolvedUserId === 'user_guest') {
           const linkMatch = await query(`
             SELECT "userId" FROM public."ConvertedLink" 
