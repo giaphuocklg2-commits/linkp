@@ -14,14 +14,12 @@ export async function GET(request) {
       if (found.rows.length) userId = found.rows[0].id;
     }
 
-    // 2. Query PostgreSQL for user's matched orders (lightning fast <50ms response)
+    // 2. Query PostgreSQL strictly for orders belonging to this user (by userId or user subId)
     const cleanUserSub = userId.replace('user_', '').replace('google_', '');
     const res = await query(`
       SELECT * FROM public."AffiliateOrder"
       WHERE "userId" = $1 
-         OR "subId" ILIKE '%' || $2 || '%'
-         OR "subId" ILIKE '%HuynhToan%'
-         OR "subId" ILIKE '%3635427136006919170%'
+         OR ("subId" IS NOT NULL AND "subId" != '' AND "subId" ILIKE '%' || $2 || '%')
       ORDER BY "createdAt" DESC
       LIMIT 50
     `, [userId, cleanUserSub]);
