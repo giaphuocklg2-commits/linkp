@@ -251,8 +251,13 @@ def cmd_reassign_orders(conn, current_user_id):
                 WHERE "userId" = %s
             """, (target_id, target_user['name'] or 'Người dùng LinkP', current_user_id))
             count = cur.rowcount
+            
+            # Auto recalculate wallets for both users
+            cur.execute('SELECT public.recalculate_user_wallet(%s)', (current_user_id,))
+            cur.execute('SELECT public.recalculate_user_wallet(%s)', (target_id,))
         conn.commit()
         print(f"[+] SUCCESS: Đã chuyển thành công {count} đơn hàng sang cho User {target_user['name']} ({target_id})!")
+        print(f"[+] Đã tự động tính toán lại Số dư Ví tiền cho cả 2 tài khoản!")
     except Exception as e:
         conn.rollback()
         print(f"[-] ERROR: Chuyển đơn thất bại: {e}")
