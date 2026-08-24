@@ -4,27 +4,37 @@ import { query } from '@/lib/db';
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { id, email, name, avatar, bankName, accountNumber, accountHolder } = body;
+    const { id, email, name, avatar, bankName, accountNumber, accountHolder, referredBy } = body;
 
     if (!id) {
       return NextResponse.json({ success: false, error: 'Thiếu user id' }, { status: 400 });
     }
 
     let effectiveId = id;
+    let isNewUser = false;
     if (email) {
-      const existing = await query(`SELECT id FROM public."User" WHERE email=$1 LIMIT 1`, [email]);
-      if (existing.rows.length) effectiveId = existing.rows[0].id;
+      const existing = await query(`SELECT id FROM public."User" WHERE LOWER(email) = LOWER($1) LIMIT 1`, [email.trim()]);
+      if (existing.rows.length) {
+        effectiveId = existing.rows[0].id;
+      } else {
+        isNewUser = true;
+      }
+    } else {
+      const existingId = await query(`SELECT id FROM public."User" WHERE id = $1 LIMIT 1`, [id]);
+      if (!existingId.rows.length) isNewUser = true;
     }
-    // 1. Upsert User
+
+    // 1. Upsert User with referredBy support
     const userRes = await query(`
-      INSERT INTO public."User" (id, email, name, avatar, role, "createdAt")
-      VALUES ($1, $2, $3, $4, 'USER', CURRENT_TIMESTAMP)
+      INSERT INTO public."User" (id, email, name, avatar, role, "referredBy", "createdAt")
+      VALUES ($1, $2, $3, $4, 'USER', $5, CURRENT_TIMESTAMP)
       ON CONFLICT (id) DO UPDATE SET
         email = CASE WHEN $2 != '' THEN $2 ELSE public."User".email END,
         name = CASE WHEN $3 != '' THEN $3 ELSE public."User".name END,
-        avatar = CASE WHEN $4 != '' THEN $4 ELSE public."User".avatar END
+        avatar = CASE WHEN $4 != '' THEN $4 ELSE public."User".avatar END,
+        "referredBy" = CASE WHEN $5 IS NOT NULL AND $5 != '' THEN $5 ELSE public."User"."referredBy" END
       RETURNING *
-    `, [effectiveId, email || '', name || 'Người dùng Google', avatar || '']);
+    `, [effectiveId, email || '', name || 'Người dùng Google', avatar || '', referredBy || null]);
 
     // 2. Ensure Wallet
     const walletRes = await query(`
@@ -49,6 +59,7 @@ export async function POST(request) {
 
     return NextResponse.json({
       success: true,
+      isNewUser,
       user: userRes.rows[0],
       wallet: walletRes.rows[0]
     });
