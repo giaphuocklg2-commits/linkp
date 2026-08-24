@@ -182,6 +182,18 @@ async function handleSync(request) {
           WHERE "orderCode" = $1 AND ("productName" = $2 OR "productName" = 'Sản phẩm Shopee')
         `, [orderCode, productName]);
 
+        let orderTimestamp = item.purchase_time ? Number(item.purchase_time) : Date.now() / 1000;
+        // Parse Shopee orderCode YYMMDD prefix (e.g. 260822... -> 2026-08-22) so order dates reflect real Shopee purchase dates
+        if (/^\d{6}/.test(orderCode)) {
+          const yy = orderCode.slice(0, 2);
+          const mm = orderCode.slice(2, 4);
+          const dd = orderCode.slice(4, 6);
+          const parsedDate = new Date(`20${yy}-${mm}-${dd}T12:00:00.000Z`);
+          if (!isNaN(parsedDate.getTime())) {
+            orderTimestamp = parsedDate.getTime() / 1000;
+          }
+        }
+
         if (existingRes.rows.length === 0) {
           // Insert new unique order item
           newOrdersCount++;
@@ -206,7 +218,7 @@ async function handleSync(request) {
             adminRev,
             'PENDING',
             rawSub || 'app_direct',
-            item.purchase_time ? Number(item.purchase_time) : Date.now() / 1000
+            orderTimestamp
           ]);
 
           const createdRes = await query(`
