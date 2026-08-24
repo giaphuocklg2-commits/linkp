@@ -7,26 +7,43 @@ export async function GET(request) {
     const userId = searchParams.get('userId');
     const email = searchParams.get('email');
 
-    if (!userId) {
-      return NextResponse.json({ success: true, wallet: { balance: 0, pending: 0, withdrawn: 0, bankName: '', accountNumber: '', accountHolder: '' } });
+    if (!userId && !email) {
+      return NextResponse.json({
+        success: true,
+        wallet: { userId: 'user_default', subId: 'user_default', balance: 0, pending: 0, withdrawn: 0, bankName: '', accountNumber: '', accountHolder: '' }
+      });
     }
 
     let effectiveId = userId;
-    let res = await query(`SELECT * FROM public."Wallet" WHERE "userId" = $1`, [effectiveId]);
-    if (res.rows.length === 0 && email) {
-      const existing = await query(`SELECT id FROM public."User" WHERE email=$1 LIMIT 1`, [email]);
-      if (existing.rows.length) {
-        effectiveId = existing.rows[0].id;
-        res = await query(`SELECT * FROM public."Wallet" WHERE "userId"=$1`, [effectiveId]);
+    let officialUser = null;
+
+    // 1. Resolve official User ID (Sub_ID) directly from DB User table
+    if (email) {
+      const uRes = await query(`SELECT id, name, email FROM public."User" WHERE LOWER(email) = LOWER($1) LIMIT 1`, [email.trim()]);
+      if (uRes.rows.length) {
+        officialUser = uRes.rows[0];
+        effectiveId = officialUser.id;
       }
     }
-    
+
+    if (!officialUser && effectiveId) {
+      const uRes = await query(`SELECT id, name, email FROM public."User" WHERE id = $1 LIMIT 1`, [effectiveId]);
+      if (uRes.rows.length) {
+        officialUser = uRes.rows[0];
+      }
+    }
+
+    // 2. Query Wallet table for official DB User ID
+    let res = await query(`SELECT * FROM public."Wallet" WHERE "userId" = $1`, [effectiveId]);
+
     if (res.rows.length === 0) {
-      const created = await query(`INSERT INTO public."Wallet"
-        (id,"userId","userName",balance,pending,withdrawn,"bankName","accountNumber","accountHolder","updatedAt")
-        VALUES (gen_random_uuid(),$1,'Người dùng',0,0,0,'','','',now())
-        ON CONFLICT ("userId") DO UPDATE SET "updatedAt"=public."Wallet"."updatedAt"
-        RETURNING *`, [effectiveId]);
+      const created = await query(`
+        INSERT INTO public."Wallet"
+        (id, "userId", "userName", balance, pending, withdrawn, "bankName", "accountNumber", "accountHolder", "updatedAt")
+        VALUES (gen_random_uuid(), $1, $2, 0, 0, 0, '', '', '', now())
+        ON CONFLICT ("userId") DO UPDATE SET "updatedAt" = public."Wallet"."updatedAt"
+        RETURNING *
+      `, [effectiveId, officialUser?.name || 'Người dùng']);
       res = created;
     }
 
@@ -34,8 +51,9 @@ export async function GET(request) {
     return NextResponse.json({
       success: true,
       wallet: {
-        userId: w.userId,
-        userName: w.userName,
+        userId: effectiveId,
+        subId: effectiveId,
+        userName: officialUser?.name || w.userName,
         balance: Number(w.balance) || 0,
         pending: Number(w.pending) || 0,
         withdrawn: Number(w.withdrawn) || 0,
@@ -45,6 +63,7 @@ export async function GET(request) {
       }
     });
   } catch (error) {
+    console.error('Error fetching app wallet:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
@@ -60,7 +79,7 @@ export async function POST(request) {
 
     let effectiveId = userId;
     if (email) {
-      const existing = await query(`SELECT id FROM public."User" WHERE email=$1 LIMIT 1`, [email]);
+      const existing = await query(`SELECT id FROM public."User" WHERE LOWER(email) = LOWER($1) LIMIT 1`, [email.trim()]);
       if (existing.rows.length) effectiveId = existing.rows[0].id;
     }
     const res = await query(`
