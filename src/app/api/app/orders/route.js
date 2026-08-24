@@ -1,29 +1,44 @@
 import { NextResponse } from 'next/server';
 import { query, transaction } from '@/lib/db';
 import { getUserTier, MEMBER_RULES } from '@/lib/membership';
+import { performAddLiveTagSync } from '@/app/api/orders/sync/route';
 
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     let userId = searchParams.get('userId') || 'user_default';
     const email = searchParams.get('email');
+
+    // 1. Resolve userId from email if provided
     if (email) {
       const found = await query(`SELECT id FROM public."User" WHERE email=$1 LIMIT 1`, [email]);
       if (found.rows.length) userId = found.rows[0].id;
     }
 
+    // 2. AUTO-SYNC LIVE CONVERSIONS FROM ADDLIVETAG API
+    // Automatically fetches and matches fresh orders from AddLiveTag on every app request
+    try {
+      await performAddLiveTagSync({ maxPages: 2 });
+    } catch (syncError) {
+      console.error('Auto sync on app order fetch warning:', syncError);
+    }
+
+    // 3. Query PostgreSQL for user's matched orders (by userId or cleanSubId)
+    const cleanUserSub = userId.replace('user_', '').replace('google_', '');
     const res = await query(`
       SELECT * FROM public."AffiliateOrder"
-      WHERE "userId" = $1
+      WHERE "userId" = $1 
+         OR "subId" LIKE '%' || $2 || '%'
       ORDER BY "createdAt" DESC
       LIMIT 50
-    `, [userId]);
+    `, [userId, cleanUserSub]);
 
     return NextResponse.json({
       success: true,
       orders: res.rows
     });
   } catch (error) {
+    console.error('Error fetching app orders:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
