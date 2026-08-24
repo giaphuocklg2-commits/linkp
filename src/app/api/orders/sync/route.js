@@ -160,7 +160,15 @@ export async function performAddLiveTagSync(opts = {}) {
         const cleanSub = rawSub.toLowerCase();
         for (const u of allUsers) {
           const cleanId = (u.id || '').replace('user_', '').replace('google_', '').toLowerCase();
-          if (cleanSub.includes(cleanId) || cleanSub === 'u_' + cleanId || cleanSub.includes((u.id || '').toLowerCase())) {
+          const cleanName = (u.name || '').toLowerCase().trim();
+          const cleanEmailPrefix = (u.email || '').split('@')[0].toLowerCase().trim();
+          const subSuffix = cleanSub.split('-').pop();
+
+          const isIdMatch = cleanId && (cleanSub.includes(cleanId) || cleanSub === 'u_' + cleanId || cleanSub.includes((u.id || '').toLowerCase()));
+          const isNameMatch = cleanName && cleanName.length > 2 && (cleanSub.includes(cleanName) || (subSuffix.length > 2 && cleanName.includes(subSuffix)));
+          const isEmailMatch = cleanEmailPrefix && cleanEmailPrefix.length > 2 && (cleanSub.includes(cleanEmailPrefix) || (subSuffix.length > 2 && cleanEmailPrefix.includes(subSuffix)));
+
+          if (isIdMatch || isNameMatch || isEmailMatch) {
             resolvedUserId = u.id;
             resolvedUserName = u.name || u.email || resolvedUserName;
             matchedCount++;
