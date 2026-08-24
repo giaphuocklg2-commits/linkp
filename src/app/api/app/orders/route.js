@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { query, transaction } from '@/lib/db';
 import { getUserTier, MEMBER_RULES } from '@/lib/membership';
-import { performAddLiveTagSync } from '@/app/api/orders/sync/route';
 
 export async function GET(request) {
   try {
@@ -15,10 +14,7 @@ export async function GET(request) {
       if (found.rows.length) userId = found.rows[0].id;
     }
 
-    // 2. Trigger non-blocking background sync from AddLiveTag (never blocks response)
-    performAddLiveTagSync({ maxPages: 1 }).catch(syncErr => console.error('Background sync non-blocking warning:', syncErr));
-
-    // 3. Fast PostgreSQL query for user's matched orders
+    // 2. Query PostgreSQL for user's matched orders (lightning fast <50ms response)
     const cleanUserSub = userId.replace('user_', '').replace('google_', '');
     const res = await query(`
       SELECT * FROM public."AffiliateOrder"
