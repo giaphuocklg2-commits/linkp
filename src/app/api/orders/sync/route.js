@@ -18,26 +18,66 @@ async function handleSync(request) {
     const { searchParams } = new URL(request.url);
     const pageSize = searchParams.get('page_size') || '100';
     const type = searchParams.get('type') || 'items';
+    const statusParam = searchParams.get('status');
+    const accountId = searchParams.get('account_id');
+    const sourceParam = searchParams.get('source');
 
-    // 1. Fetch live conversions from AddLiveTag API
-    const response = await fetch(`${CONVERSIONS_URL}?type=${type}&page_size=${pageSize}`, {
-      headers: {
-        'X-API-Key': API_KEY,
-        'Accept': 'application/json',
-        'User-Agent': 'LinkP-Admin/2.0'
-      },
-      next: { revalidate: 0 }
-    });
-
-    if (!response.ok) {
-      return NextResponse.json({ 
-        success: false, 
-        error: `AddLiveTag API HTTP ${response.status}: ${response.statusText}` 
-      }, { status: 502 });
+    // Default 'from' date to 30 days ago if not explicitly provided
+    let fromParam = searchParams.get('from');
+    if (!fromParam) {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      fromParam = d.toISOString().slice(0, 10);
     }
+    const toParam = searchParams.get('to') || new Date().toISOString().slice(0, 10);
 
-    const payload = await response.json();
-    const items = payload.data || [];
+    // 1. Multi-page fetch from AddLiveTag API
+    let items = [];
+    let page = 1;
+    let hasMore = true;
+    const maxPages = searchParams.get('max_pages') ? parseInt(searchParams.get('max_pages')) : 20;
+
+    while (hasMore && page <= maxPages) {
+      let url = `${CONVERSIONS_URL}?type=${type}&page_size=${pageSize}&page=${page}`;
+      if (fromParam) url += `&from=${encodeURIComponent(fromParam)}`;
+      if (toParam) url += `&to=${encodeURIComponent(toParam)}`;
+      if (statusParam) url += `&status=${encodeURIComponent(statusParam)}`;
+      if (accountId) url += `&account_id=${encodeURIComponent(accountId)}`;
+      if (sourceParam) url += `&source=${encodeURIComponent(sourceParam)}`;
+
+      const response = await fetch(url, {
+        headers: {
+          'X-API-Key': API_KEY,
+          'Accept': 'application/json',
+          'User-Agent': 'LinkP-Admin/2.0'
+        },
+        cache: 'no-store'
+      });
+
+      if (!response.ok) {
+        if (page === 1) {
+          return NextResponse.json({ 
+            success: false, 
+            error: `AddLiveTag API HTTP ${response.status}: ${response.statusText}` 
+          }, { status: 502 });
+        }
+        break;
+      }
+
+      const payload = await response.json();
+      const pageData = payload.data || [];
+      if (pageData.length === 0) {
+        hasMore = false;
+      } else {
+        items.push(...pageData);
+        const totalRecords = payload.meta?.total || 0;
+        if (items.length >= totalRecords || pageData.length < Number(pageSize)) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      }
+    }
 
     let totalFetched = items.length;
     let matchedCount = 0;
@@ -55,6 +95,10 @@ async function handleSync(request) {
       const orderCode = (item.order_sn || item.checkout_id || '').trim().toUpperCase();
       if (!orderCode) continue;
 
+      const productName = (item.item_name || 'Sản phẩm Shopee').trim();
+      const orderVal = Number(item.order_value) || Number(item.price) || 0;
+      const comm = Number(item.commission) || Math.round(orderVal * 0.10);
+
       let rawSub = (item.sub_id1 || item.utm || '').trim();
       
       // Fix subid truncation: if utm contains the sub_id1 (e.g. link4p-xxxx), we prefer it
@@ -65,17 +109,16 @@ async function handleSync(request) {
 
       const rawStatus = (item.status || '').trim();
       const statusCode = (item.status_code || '').toLowerCase().trim();
-      const commStatus = (item.commission_status || '').trim();
 
-      // Check if order is completed / eligible for cashback payout
+      // STRICT ORDER STATUS EVALUATION (commission_status is Shopee payout status, NOT order status)
       const isCompleted = statusCode === 'completed' || 
                           statusCode === 'paid' || 
                           rawStatus === 'Hoàn thành' || 
-                          rawStatus === 'Đã thanh toán' || 
-                          commStatus === 'Chờ trả hoa hồng' ||
-                          commStatus === 'Đã trả';
+                          rawStatus === 'Đã thanh toán';
 
-      const isCancelled = statusCode === 'cancelled' || rawStatus === 'Huỷ' || rawStatus === 'Hủy';
+      const isCancelled = statusCode === 'cancelled' || 
+                          rawStatus === 'Huỷ' || 
+                          rawStatus === 'Hủy';
 
       const targetStatus = isCompleted ? 'APPROVED' : (isCancelled ? 'REJECTED' : 'PENDING');
 
@@ -113,17 +156,19 @@ async function handleSync(request) {
         }
       }
 
-      const orderVal = Number(item.order_value) || Number(item.price) || 0;
-      const comm = Number(item.commission) || Math.round(orderVal * 0.10);
       const tier = await getUserTier({query}, resolvedUserId);
       const userCb = Math.round(comm * Math.min(100,baseRate+MEMBER_RULES[tier].bonus) / 100);
       const adminRev = comm - userCb;
 
-      // 4. Check if order already exists
-      const existingRes = await query(`SELECT id, status, "userCashback", "userId" FROM public."AffiliateOrder" WHERE "orderCode" = $1`, [orderCode]);
+      // 4. Check if specific order item already exists (deduplicate by orderCode + productName + orderValue)
+      const existingRes = await query(`
+        SELECT id, status, "userCashback", "userId" 
+        FROM public."AffiliateOrder" 
+        WHERE "orderCode" = $1 AND ("productName" = $2 OR "productName" = 'Sản phẩm Shopee')
+      `, [orderCode, productName]);
 
       if (existingRes.rows.length === 0) {
-        // Insert new order
+        // Insert new unique order item
         newOrdersCount++;
         await query(`
           INSERT INTO public."AffiliateOrder" (
@@ -137,7 +182,7 @@ async function handleSync(request) {
           orderCode,
           resolvedUserId,
           resolvedUserName,
-          item.item_name || 'Sản phẩm Shopee',
+          productName,
           item.affiliate || 'Shopee Mall',
           item.image || '',
           orderVal,
@@ -149,8 +194,13 @@ async function handleSync(request) {
           item.purchase_time ? Number(item.purchase_time) : Date.now() / 1000
         ]);
 
-        const createdRes = await query(`SELECT id FROM public."AffiliateOrder" WHERE "orderCode"=$1 ORDER BY "createdAt" DESC LIMIT 1`, [orderCode]);
+        const createdRes = await query(`
+          SELECT id FROM public."AffiliateOrder" 
+          WHERE "orderCode"=$1 AND "productName"=$2 
+          ORDER BY "createdAt" DESC LIMIT 1
+        `, [orderCode, productName]);
         const createdId = createdRes.rows[0]?.id;
+
         // Record the pending cashback in the immutable ledger.
         if (resolvedUserId !== 'user_guest') {
           await query(`UPDATE public."Wallet" SET pending=pending+$1,"updatedAt"=now() WHERE "userId"=$2`, [userCb,resolvedUserId]);
@@ -164,7 +214,7 @@ async function handleSync(request) {
           }
         }
       } else {
-        // Existing order: Update status and credit wallet if transitioned to APPROVED
+        // Existing order item: Update status and credit wallet if transitioned to APPROVED
         const prev = existingRes.rows[0];
         if (prev.status !== 'APPROVED' && targetStatus === 'APPROVED') {
           completedCount++;
@@ -182,7 +232,7 @@ async function handleSync(request) {
           `, [
             resolvedUserId,
             resolvedUserName,
-            item.item_name || 'Sản phẩm Shopee',
+            productName,
             orderVal,
             comm,
             userCb,
@@ -205,9 +255,10 @@ async function handleSync(request) {
         matchedCount,
         completedCount,
         newOrdersCount,
-        totalCashbackCredited
+        totalCashbackCredited,
+        range: `${fromParam} -> ${toParam}`
       },
-      message: `Đã đồng bộ thành công ${totalFetched} đơn từ AddLiveTag API! Khớp ${matchedCount} Sub_ID, ${completedCount} đơn hoàn thành đã cộng ví.`
+      message: `Đã đồng bộ thành công ${totalFetched} đơn từ AddLiveTag API (${fromParam} đến ${toParam})! Khớp ${matchedCount} Sub_ID, thêm ${newOrdersCount} đơn mới, ${completedCount} đơn hoàn thành đã cộng ví.`
     });
   } catch (error) {
     console.error('AddLiveTag sync error:', error);
