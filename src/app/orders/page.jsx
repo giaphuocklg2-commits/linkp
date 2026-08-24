@@ -535,18 +535,18 @@ export default function OrdersPage() {
                 </div>
               </div>
 
-              {matchForm.orderValue && Number(matchForm.orderValue) > 0 && (
+              {(matchForm.shopeeCommission || matchForm.orderValue) && (
                 <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center justify-between font-bold">
                   <div>
-                    <div>Hoàn tiền User (80% hoa hồng):</div>
+                    <div>Hoàn tiền User (80% hoa hồng AddLiveTag):</div>
                     <div className="text-base font-black text-emerald-700">
-                      +{formatVnd(Math.round(Number(matchForm.orderValue) * 0.10 * 0.80))}
+                      +{formatVnd(Math.round((matchForm.shopeeCommission ? Number(matchForm.shopeeCommission) : Number(matchForm.orderValue) * 0.10) * 0.80))}
                     </div>
                   </div>
                   <div className="text-right">
                     <div>Doanh thu Admin (20%):</div>
                     <div className="text-sm font-black text-blue-700">
-                      +{formatVnd(Math.round(Number(matchForm.orderValue) * 0.10 * 0.20))}
+                      +{formatVnd(Math.round((matchForm.shopeeCommission ? Number(matchForm.shopeeCommission) : Number(matchForm.orderValue) * 0.10) * 0.20))}
                     </div>
                   </div>
                 </div>
